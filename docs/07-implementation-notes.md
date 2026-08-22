@@ -82,8 +82,10 @@ docs/06의 완료 기준 전부 충족. 단, 아래 두 가지는 조건부다.
 
 - "samples 파일로 end-to-end 동작": 실제 파일이 없어 **문서 규격대로 생성한 픽스처**로 검증했다.
   실제 파일 확보 후 재검증 필요(1번 항목 참조).
-- "docker compose up으로 로컬 전체 기동": compose 파일과 Dockerfile을 작성했으나, 개발 환경에서는
-  로컬 PostgreSQL + uvicorn + vite로 검증했다. 이미지 빌드는 사내 네트워크에서 한 번 확인할 것.
+- "docker compose up으로 로컬 전체 기동": compose 파일과 Dockerfile을 작성했으나 **이미지 빌드는
+  미검증**이다. 개발 환경에 Docker 데몬이 없어(CLI만 설치) `docker compose build`를 실행할 수 없었다.
+  대신 로컬 PostgreSQL + uvicorn + vite 조합으로 전 기능을 검증했다(마이그레이션 적용, 시드, API 33개,
+  화면 8개 실브라우저 렌더링). 사내 환경에서 `docker compose up --build`를 한 번 돌려 확인할 것.
 
 ## 7. 1차 고도화 진입 시 유의점
 
