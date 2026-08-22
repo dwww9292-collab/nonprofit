@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
-from app.core.enums import AssetSize, OrgType, SourceCode, StageSignal
+from app.core.enums import REGION_UNKNOWN, AssetSize, OrgType, SourceCode, StageSignal
 from app.models import ExistingCustomer, Lead
+from app.services.normalize import legal_form_from_name
 
 # 유사도 중복의심 임계값 (자동병합 아님 — 배지 표시만)
 SIMILARITY_THRESHOLD = 0.9
@@ -93,14 +94,34 @@ def find_duplicate(db: Session, cand: LeadCandidate) -> DedupMatch:
         if lead:
             return DedupMatch(lead, "BIZ_REG_NO")
 
-    if cand.org_name_norm and cand.region_code:
-        lead = db.scalars(
-            base.where(
-                Lead.org_name_norm == cand.org_name_norm,
-                Lead.region_code == cand.region_code,
+    if cand.org_name_norm:
+        # 지역 '99'(미상)는 지역 정보가 없다는 뜻이므로 불일치로 취급하지 않는다.
+        # 기재부 지정누계에는 주소 열이 아예 없어(실측) 전 건이 99다. 지역 일치를 강제하면
+        # 같은 단체가 소스별로 갈라진다 — 실제 파일에서 1,314개 단체 2,650건이 그랬다.
+        stmt = base.where(Lead.org_name_norm == cand.org_name_norm)
+        known = cand.region_code and cand.region_code != REGION_UNKNOWN
+        if known:
+            stmt = stmt.where(
+                or_(
+                    Lead.region_code == cand.region_code,
+                    Lead.region_code == REGION_UNKNOWN,
+                    Lead.region_code.is_(None),
+                )
             )
-        ).first()
-        if lead:
+            # 지역이 정확히 맞는 리드를 우선 선택
+            stmt = stmt.order_by((Lead.region_code == cand.region_code).desc(), Lead.id)
+        else:
+            stmt = stmt.order_by(Lead.id)
+        candidates = db.scalars(stmt).all()
+        cand_form = legal_form_from_name(cand.org_name)
+        for lead in candidates:
+            # 정규화가 법인격 접두어를 지우므로 "(사)함양군장학회"와 "(재)함양군장학회"가
+            # 같은 키가 된다. 실제로는 별개 법인이므로, 양쪽 명칭에 법인격이 명시돼 있고
+            # 서로 다르면 병합하지 않는다 (기재부 지정누계 실데이터에서 확인된 사례).
+            # 한쪽에 표기가 없으면 같은 법인의 다른 표기로 보고 병합한다.
+            lead_form = legal_form_from_name(lead.org_name)
+            if cand_form and lead_form and cand_form != lead_form:
+                continue
             return DedupMatch(lead, "NAME_REGION")
 
     return DedupMatch(None, None)
@@ -168,7 +189,12 @@ def merge_candidate_into_lead(lead: Lead, cand: LeadCandidate) -> list[str]:
         new_val = getattr(cand, fname)
         if new_val in (None, ""):
             continue
+        if fname == "region_code" and new_val == REGION_UNKNOWN:
+            continue
         cur_val = getattr(lead, fname)
+        # region_code의 '99'는 값이 아니라 '정보 없음'이므로 빈 칸으로 본다
+        if fname == "region_code" and cur_val == REGION_UNKNOWN:
+            cur_val = None
         if cur_val in (None, ""):
             setattr(lead, fname, new_val)
             changed.append(fname)

@@ -162,68 +162,121 @@ def is_total_row(values: list) -> bool:
     return False
 
 
-def parse_table(
-    content: bytes,
-    file_name: str,
+def _extract_sheet(
+    df: pd.DataFrame,
     required: list[str],
-    preferred_sheet_keyword: str | None = None,
-) -> ParseResult:
-    """공통 파싱: 시트 선택 → 헤더 탐지 → 행 추출. 필수 헤더 미검출 시 ParseError."""
-    frames = load_frames(content, file_name)
-    if not frames:
-        raise ParseError("파일에서 읽을 수 있는 시트가 없습니다.")
-
-    # 시트 선택: 키워드 우선 → 매핑 성적이 가장 좋은 시트
-    ordered = frames
-    if preferred_sheet_keyword:
-        ordered = sorted(
-            frames,
-            key=lambda kv: 0 if kv[0] and preferred_sheet_keyword in str(kv[0]) else 1,
-        )
-
-    best: tuple[int, str | None, pd.DataFrame, int, dict[int, str], list[str]] | None = None
-    for sheet_name, df in ordered:
-        if df.empty:
-            continue
-        hdr_idx, col_map, unmapped = find_header_row(df, required)
-        hits = len(set(col_map.values()) & set(required))
-        if best is None or hits > best[0]:
-            best = (hits, sheet_name, df, hdr_idx, col_map, unmapped)
-        if preferred_sheet_keyword and sheet_name and preferred_sheet_keyword in str(sheet_name) and hits:
-            break
-
-    if best is None:
-        raise ParseError("파일이 비어 있습니다.")
-
-    _hits, sheet_name, df, hdr_idx, col_map, unmapped = best
+    sheet_name: str | None,
+    start_row_no: int,
+) -> tuple[list[RawRow], dict[str, str], list[str], int, list[str]]:
+    """시트 1장에서 헤더를 찾아 행을 추출. (rows, header_map, unmapped, 마지막 row_no, 누락필드)"""
+    hdr_idx, col_map, unmapped = find_header_row(df, required)
     mapped_fields = set(col_map.values())
     missing = [f for f in required if f not in mapped_fields]
-    if missing:
-        found = ", ".join(sorted({str(c) for c in df.iloc[hdr_idx]})) if hdr_idx >= 0 else "(헤더 행 미검출)"
-        raise ParseError(
-            "필수 헤더를 찾지 못했습니다: "
-            + ", ".join(f"{m}({'/'.join(HEADER_ALIASES.get(m, []))})" for m in missing)
-            + f" | 파일에서 읽은 헤더: {found}"
-        )
+    if missing or hdr_idx < 0:
+        return [], {}, unmapped, start_row_no, missing or list(required)
 
     header_map = {std: str(df.iloc[hdr_idx, col_i]).strip() for col_i, std in col_map.items()}
+    # payload는 매핑 여부와 무관하게 원본 열 전체를 보존한다 (CLAUDE.md: 원문 그대로 보존 → 재처리 가능)
+    all_headers: dict[int, str] = {}
+    for col_i, cell in enumerate(df.iloc[hdr_idx]):
+        label = "" if cell is None else re.sub(r"\s+", " ", str(cell)).strip()
+        if label in ("", "nan"):
+            label = f"__col{col_i}"
+        while label in all_headers.values():
+            label += "_"
+        all_headers[col_i] = label
 
+    name_col = next((c for c, s in col_map.items() if s == "org_name"), None)
     rows: list[RawRow] = []
-    row_no = 0
+    row_no = start_row_no
     for i in range(hdr_idx + 1, len(df)):
         values = list(df.iloc[i])
         if is_blank_row(values):
             continue
         row_no += 1
-        payload = {}
-        for col_i, std in col_map.items():
-            cell = values[col_i] if col_i < len(values) else None
-            payload[header_map[std]] = "" if cell is None else str(cell).strip()
-        if is_total_row([payload.get(header_map.get("org_name", ""), "")]):
+        payload = {
+            label: ("" if col_i >= len(values) or values[col_i] is None else str(values[col_i]).strip())
+            for col_i, label in all_headers.items()
+        }
+        if sheet_name:
+            payload["__sheet"] = str(sheet_name)
+        if name_col is not None and is_total_row([values[name_col] if name_col < len(values) else None]):
             rows.append(RawRow(row_no=row_no, payload=payload, error="합계/소계 행으로 판단해 스킵"))
             continue
         mapped = {std: values[col_i] for col_i, std in col_map.items() if col_i < len(values)}
         rows.append(RawRow(row_no=row_no, payload=payload, fields=mapped))
+
+    return rows, header_map, unmapped, row_no, []
+
+
+def parse_table(
+    content: bytes,
+    file_name: str,
+    required: list[str],
+    preferred_sheet_keywords: tuple[str, ...] = (),
+    merge_all_sheets: bool = False,
+) -> ParseResult:
+    """공통 파싱: 시트 선택 → 헤더 탐지 → 행 추출. 필수 헤더 미검출 시 ParseError.
+
+    merge_all_sheets=True면 헤더 매핑에 성공한 모든 시트를 합친다
+    (행안부 비영리민간단체 파일처럼 '중앙'/'시도' 시트로 나뉜 경우).
+    """
+    frames = load_frames(content, file_name)
+    if not frames:
+        raise ParseError("파일에서 읽을 수 있는 시트가 없습니다.")
+
+    if merge_all_sheets:
+        rows: list[RawRow] = []
+        header_map: dict[str, str] = {}
+        unmapped: list[str] = []
+        names: list[str] = []
+        row_no = 0
+        for sheet_name, df in frames:
+            if df.empty:
+                continue
+            got, hmap, unm, row_no, missing = _extract_sheet(df, required, sheet_name, row_no)
+            if missing:
+                continue
+            rows.extend(got)
+            header_map = header_map or hmap
+            unmapped.extend(u for u in unm if u not in unmapped)
+            names.append(str(sheet_name))
+        if not rows:
+            raise ParseError(_missing_header_message(frames, required))
+        return ParseResult(
+            rows=rows,
+            header_map=header_map,
+            unmapped_headers=unmapped,
+            total_rows=len(rows),
+            sheet_name=", ".join(names),
+        )
+
+    # 시트 선택: 키워드 우선 → 매핑 성적이 가장 좋은 시트
+    ordered = frames
+    if preferred_sheet_keywords:
+        ordered = sorted(
+            frames,
+            key=lambda kv: 0 if kv[0] and any(k in str(kv[0]) for k in preferred_sheet_keywords) else 1,
+        )
+
+    best: tuple[int, str | None, pd.DataFrame] | None = None
+    for sheet_name, df in ordered:
+        if df.empty:
+            continue
+        _hdr, col_map, _unm = find_header_row(df, required)
+        hits = len(set(col_map.values()) & set(required))
+        if best is None or hits > best[0]:
+            best = (hits, sheet_name, df)
+        if hits == len(required):
+            break
+
+    if best is None:
+        raise ParseError("파일이 비어 있습니다.")
+
+    _hits, sheet_name, df = best
+    rows, header_map, unmapped, _row_no, missing = _extract_sheet(df, required, None, 0)
+    if missing:
+        raise ParseError(_missing_header_message(frames, required))
 
     return ParseResult(
         rows=rows,
@@ -231,4 +284,21 @@ def parse_table(
         unmapped_headers=unmapped,
         total_rows=len(rows),
         sheet_name=sheet_name,
+    )
+
+
+def _missing_header_message(frames: list[tuple[str | None, pd.DataFrame]], required: list[str]) -> str:
+    seen: list[str] = []
+    for _name, df in frames:
+        if df.empty:
+            continue
+        for i in range(min(MAX_HEADER_SCAN_ROWS, len(df))):
+            for cell in df.iloc[i]:
+                label = _norm_header(cell)
+                if label and str(cell).strip() not in seen:
+                    seen.append(str(cell).strip())
+    return (
+        "필수 헤더를 찾지 못했습니다: "
+        + ", ".join(f"{m}({'/'.join(HEADER_ALIASES.get(m, []))})" for m in required)
+        + f" | 파일에서 읽은 헤더 후보: {', '.join(seen[:30]) or '(없음)'}"
     )

@@ -74,3 +74,27 @@ def make_customers_csv(rows: list[dict]) -> bytes:
             )
         )
     return "\n".join(lines).encode("utf-8-sig")
+
+
+def make_multi_sheet_xlsx(sheets: dict[str, list[dict]]) -> bytes:
+    """행안부 파일처럼 여러 시트에 같은 표가 나뉘어 있는 xlsx."""
+    columns = ["기관구분", "등록기관", "등록번호", "유형", "단체명", "대표자", "소재지", "주된사업", "연락처"]
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for sheet_name, rows in sheets.items():
+            data = [
+                [
+                    r.get("기관구분", "시도"),
+                    r.get("등록기관", ""),
+                    r.get("등록번호", ""),
+                    r.get("유형", ""),
+                    r.get("org_name", ""),
+                    r.get("representative", ""),
+                    r.get("address", ""),
+                    r.get("purpose", ""),
+                    r.get("phone", ""),
+                ]
+                for r in rows
+            ]
+            pd.DataFrame([columns] + data).to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+    return buf.getvalue()

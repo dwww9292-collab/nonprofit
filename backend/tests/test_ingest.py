@@ -15,7 +15,12 @@ from app.ingest.pipeline import (
     upload_existing_customers,
 )
 from app.models import ExistingCustomer, Lead, RawRecord
-from tests.factories import make_customers_csv, make_moef_xlsx, make_npo_csv
+from tests.factories import (
+    make_customers_csv,
+    make_moef_xlsx,
+    make_multi_sheet_xlsx,
+    make_npo_csv,
+)
 
 Q1_ROWS = [
     {
@@ -402,3 +407,147 @@ def test_preview_detects_duplicate_file(db, admin):
         db, source_code=SourceCode.MOEF_DESIGNATION, content=content, file_name="moef.xlsx"
     )
     assert preview.duplicate_file is True
+
+
+# =====================================================================
+# 실제 공공데이터 파일(기재부 지정누계 / 행안부 비영리민간단체)에서
+# 드러난 문제들에 대한 회귀 테스트.
+# =====================================================================
+
+
+def test_payload_preserves_unmapped_columns(db, admin):
+    """CLAUDE.md: 원본은 raw_records에 원문 그대로 보존 → 매핑 안 된 열도 남아야 재처리가 된다.
+
+    기재부 실파일의 '지정기간', '명칭변경(전)' 같은 열이 사라지면 안 된다.
+    """
+    _ingest(db, admin, rows=Q1_ROWS, period="2026Q1")
+    rec = db.scalars(select(RawRecord)).first()
+    assert "공익법인명" in rec.payload
+    assert "연번" in rec.payload, "매핑되지 않은 열도 원문 그대로 보존돼야 한다"
+
+
+def test_multi_sheet_file_reads_every_sheet(db, admin):
+    """행안부 원본은 '중앙'/'시도' 두 시트로 나뉜다. 한 시트만 읽으면 대부분을 잃는다."""
+    content = make_multi_sheet_xlsx(
+        {
+            "중앙": [{"org_name": "전국나눔연합", "등록기관": "보건복지부", "address": "서울특별시 중구 1"}],
+            "시도": [
+                {"org_name": "경기돌봄회", "등록기관": "경기도(본청)", "address": "수원시 팔달구 1"},
+                {"org_name": "부산이웃돕기회", "등록기관": "부산광역시", "address": "사상구 모라동 421"},
+            ],
+        }
+    )
+    _b, result = ingest_file(
+        db, source_code=SourceCode.DATA_GO_KR_NPO, content=content, file_name="mois.xlsx",
+        uploaded_by=admin.id,
+    )
+    assert result.total_rows == 3, "두 시트를 모두 읽어야 한다"
+    assert result.new_leads == 3
+
+
+def test_region_falls_back_to_registrar(db, admin):
+    """주소가 시군구부터 시작하면 시도를 못 잡는다 (실파일의 19%). 등록기관으로 보정한다."""
+    content = make_multi_sheet_xlsx(
+        {
+            "시도": [
+                {"org_name": "수원마을돌봄", "등록기관": "경기도(본청)", "address": "수원시 팔달구 매산로 1"},
+                {"org_name": "사상주민회", "등록기관": "부산광역시", "address": "사상구 모라동 421"},
+                {"org_name": "화성이웃", "등록기관": "화성특례시",
+                 "address": "화성시 남양읍 시청로45번길 65"},
+            ]
+        }
+    )
+    ingest_file(
+        db, source_code=SourceCode.DATA_GO_KR_NPO, content=content, file_name="mois.xlsx",
+        uploaded_by=admin.id,
+    )
+    got = {x.org_name: x.region_code for x in db.scalars(select(Lead)).all()}
+    assert got["수원마을돌봄"] == "41"
+    assert got["사상주민회"] == "26"
+    assert got["화성이웃"] == "41"
+
+
+def test_npo_type_column_refines_org_type(db, admin):
+    """행안부 파일의 '유형' 열이 사단법인이라고 밝히면 그 사실을 쓴다 (기본값은 ORG_NPO_GROUP)."""
+    content = make_multi_sheet_xlsx(
+        {
+            "중앙": [
+                {"org_name": "바른경제동호인회", "유형": "사단법인", "등록기관": "재정경제부",
+                 "address": "서울특별시 서초구 1"},
+                {"org_name": "행정개혁시민연합", "유형": "", "등록기관": "재정경제부",
+                 "address": "서울특별시 종로구 1"},
+            ]
+        }
+    )
+    ingest_file(
+        db, source_code=SourceCode.DATA_GO_KR_NPO, content=content, file_name="mois.xlsx",
+        uploaded_by=admin.id,
+    )
+    got = {x.org_name: x.org_type for x in db.scalars(select(Lead)).all()}
+    assert got["바른경제동호인회"] == OrgType.ASSOCIATION
+    assert got["행정개혁시민연합"] == OrgType.NPO_GROUP
+
+
+def test_unknown_region_does_not_block_merge(db, admin):
+    """기재부 지정누계에는 주소 열이 없어 전 건이 region 99다.
+
+    지역 일치를 강제하면 같은 단체가 소스별로 갈라진다(실파일에서 1,314단체 2,650건).
+    '99'는 정보 없음이므로 병합을 막지 않고, 병합 시 실제 지역으로 채워져야 한다.
+    """
+    npo = make_npo_csv(
+        [{"org_name": "(사)함께만드는세상", "address": "서울특별시 종로구 1", "phone": "02-2274-9637"}]
+    )
+    ingest_file(
+        db, source_code=SourceCode.DATA_GO_KR_NPO, content=npo, file_name="npo.csv", uploaded_by=admin.id
+    )
+    lead = db.scalars(select(Lead)).one()
+    assert lead.region_code == "11" and lead.designated_at is None
+
+    # 주소가 없는 기재부 행(지정일만 있음)
+    _b, result = _ingest(
+        db, admin,
+        rows=[{"org_name": "(사)함께만드는세상", "corp_reg_no": "", "address": "",
+               "designated_at": "2026-06-30", "authority": "기획재정부"}],
+        period="2026Q1",
+    )
+    assert result.merged_leads == 1, "지역 미상이라는 이유로 갈라지면 안 된다"
+    assert db.scalar(select(func.count()).select_from(Lead)) == 1
+
+    db.refresh(lead)
+    assert lead.designated_at is not None, "기재부의 지정일이 병합돼야 한다"
+    assert lead.region_code == "11", "실제 지역이 '99'로 덮이면 안 된다"
+
+
+def test_same_name_different_legal_form_stays_separate(db, admin):
+    """'(사)함양군장학회'와 '(재)함양군장학회'는 정규화하면 같은 키지만 별개 법인이다."""
+    _b, result = _ingest(
+        db, admin,
+        rows=[
+            {"org_name": "(사)함양군장학회", "corp_reg_no": "", "address": "", "designated_at": "2026-06-30"},
+            {"org_name": "(재)함양군장학회", "corp_reg_no": "", "address": "", "designated_at": "2026-06-30"},
+        ],
+        period="2026Q1",
+    )
+    assert result.new_leads == 2 and result.merged_leads == 0
+    types = {x.org_type for x in db.scalars(select(Lead)).all()}
+    assert types == {OrgType.ASSOCIATION, OrgType.FOUNDATION}
+
+
+def test_same_org_repeated_in_one_file_does_not_break_source_link(db, admin):
+    """한 파일에 같은 단체가 여러 행 있으면 lead_sources 유니크 제약을 건드릴 수 있다.
+
+    실파일(기재부 27건, 행안부 52건)에서 실제로 터졌던 경로다.
+    """
+    row = {"org_name": "나눔과 돌봄 사회적협동조합", "corp_reg_no": "", "address": "",
+           "designated_at": "2026-06-30"}
+    _b, result = _ingest(
+        db, admin,
+        rows=[
+            row,
+            {**row, "org_name": "나눔과돌봄 사회적협동조합"},
+            {**row, "org_name": "나눔과돌봄사회적협동조합"},
+        ],
+        period="2026Q1",
+    )
+    assert result.new_leads == 1 and result.merged_leads == 2
+    assert db.scalar(select(func.count()).select_from(Lead)) == 1

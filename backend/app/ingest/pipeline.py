@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
@@ -213,15 +214,17 @@ def create_lead_from_candidate(
 
 
 def _link_source(db: Session, lead: Lead, source: Source, batch_id: int | None) -> None:
-    exists = db.scalars(
-        select(LeadSource).where(
-            LeadSource.lead_id == lead.id,
-            LeadSource.source_id == source.id,
-            LeadSource.batch_id.is_(batch_id) if batch_id is None else LeadSource.batch_id == batch_id,
-        )
-    ).first()
-    if exists is None:
-        db.add(LeadSource(lead_id=lead.id, source_id=source.id, batch_id=batch_id))
+    """리드-소스 출처를 기록. 같은 배치에 동일 리드가 여러 행으로 들어와도 안전해야 한다.
+
+    세션이 autoflush=False라 SELECT로는 같은 배치 안의 미flush 삽입을 못 본다.
+    (기재부/행안부 실파일처럼 한 파일에 같은 단체가 여러 행 있는 경우 유니크 제약 위반이 났다.)
+    DB의 유니크 제약에 맡기고 ON CONFLICT DO NOTHING으로 처리한다.
+    """
+    db.execute(
+        pg_insert(LeadSource.__table__)
+        .values(lead_id=lead.id, source_id=source.id, batch_id=batch_id)
+        .on_conflict_do_nothing(constraint="uq_lead_source_batch")
+    )
 
 
 def ingest_rows(

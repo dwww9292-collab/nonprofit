@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.core.enums import OrgType, SourceCode
+from app.core.enums import REGION_UNKNOWN, OrgType, SourceCode
 from app.ingest.base import ParseResult, RawRow, parse_table
 from app.services.dedup import LeadCandidate
 from app.services.normalize import (
@@ -28,7 +28,9 @@ from app.services.normalize import (
 class BaseFileParser:
     source_code: str = SourceCode.MANUAL
     required_fields: list[str] = ["org_name"]
-    preferred_sheet_keyword: str | None = None
+    preferred_sheet_keywords: tuple[str, ...] = ()
+    #: 여러 시트로 쪼개진 파일이면 모두 합친다
+    merge_all_sheets: bool = False
     #: 이 소스가 강제하는 org_type (None이면 명칭에서 추정)
     forced_org_type: str | None = None
 
@@ -37,7 +39,8 @@ class BaseFileParser:
             content,
             file_name,
             required=self.required_fields,
-            preferred_sheet_keyword=self.preferred_sheet_keyword,
+            preferred_sheet_keywords=self.preferred_sheet_keywords,
+            merge_all_sheets=self.merge_all_sheets,
         )
 
     def to_candidate(
@@ -91,7 +94,8 @@ class MoefDesignationParser(BaseFileParser):
 
     source_code = SourceCode.MOEF_DESIGNATION
     required_fields = ["org_name"]
-    preferred_sheet_keyword = "누계"
+    # 실제 파일 시트명은 "2026.2분기 기준" 형태이고 "지정누계"가 아니다 (samples 실측)
+    preferred_sheet_keywords = ("누계", "분기", "기준")
 
     def to_candidate(self, row: RawRow, **kwargs) -> LeadCandidate:
         cand = super().to_candidate(row, **kwargs)
@@ -109,7 +113,28 @@ class DataGoKrNpoParser(BaseFileParser):
 
     source_code = SourceCode.DATA_GO_KR_NPO
     required_fields = ["org_name"]
+    # 행안부 원본은 '중앙'/'시도' 두 시트로 나뉘어 있어 둘 다 읽어야 한다 (samples 실측)
+    merge_all_sheets = True
     forced_org_type = OrgType.NPO_GROUP
+
+    def to_candidate(self, row: RawRow, **kwargs) -> LeadCandidate:
+        cand = super().to_candidate(row, **kwargs)
+
+        # 원본에 '유형' 열이 있으면(사단법인/재단법인 등) 그 사실을 우선한다.
+        # 비어 있을 때만 ORG_NPO_GROUP으로 남긴다.
+        declared = clean_text(row.payload.get("유형"))
+        if declared:
+            guessed = guess_org_type(declared, default=OrgType.ETC)
+            if guessed != OrgType.ETC:
+                cand.org_type = guessed
+
+        # 주소가 시군구부터 시작해 시도를 못 잡는 행이 19% 있었다 (실측).
+        # 등록기관은 관할 지자체이므로 지역 보정에 쓸 수 있다.
+        if cand.region_code == REGION_UNKNOWN:
+            hinted = extract_region_code(clean_text(row.payload.get("등록기관")))
+            if hinted != REGION_UNKNOWN:
+                cand.region_code = hinted
+        return cand
 
 
 PARSERS: dict[str, BaseFileParser] = {

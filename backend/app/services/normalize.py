@@ -45,6 +45,9 @@ _SIDO_PATTERNS: list[tuple[str, str]] = [
     ("경상북도", "47"), ("경북", "47"),
     ("경상남도", "48"), ("경남", "48"),
     ("제주특별자치도", "50"), ("제주도", "50"), ("제주", "50"),
+    # 특례시는 시도명 없이 단독 표기되는 경우가 많다 (행안부 등록기관 열 실측)
+    ("수원특례시", "41"), ("화성특례시", "41"), ("용인특례시", "41"), ("고양특례시", "41"),
+    ("창원특례시", "48"),
 ]
 # "광주"는 경기도 광주시와 충돌하므로 광역시 표기가 명확할 때만 29로 본다.
 _AMBIGUOUS_BARE = {"광주"}
@@ -89,11 +92,42 @@ def guess_org_type(raw_name: str | None, default: str = OrgType.ETC) -> str:
     return default
 
 
+# "(301-841)대전 중구 …" 처럼 앞에 붙는 우편번호 (행안부 파일 실측)
+_ZIPCODE_PREFIX_RE = re.compile(r"^\(?\d{3}[-\s]?\d{2,3}\)?\s*")
+
+
+# 명칭 접두어가 나타내는 법인격 그룹. 같은 이름이라도 그룹이 다르면 별개 법인이다.
+_LEGAL_FORM_GROUPS: list[tuple[tuple[str, ...], str]] = [
+    (("사회복지법인", "(사복)"), "SOCIAL_WELFARE"),
+    (("재단법인", "(재)"), "FOUNDATION"),
+    (("사단법인", "(사)"), "ASSOCIATION"),
+    (("학교법인",), "SCHOOL"),
+    (("의료법인",), "MEDICAL"),
+]
+
+
+def legal_form_from_name(raw_name: str | None) -> str | None:
+    """명칭에 실제로 표기된 법인격 그룹. 표기가 없으면 None.
+
+    org_type과 달리 '소스 기본값'이 섞이지 않으므로, 중복 판정에서
+    "(사)함양군장학회 vs (재)함양군장학회"처럼 서로 다른 법인을 가려내는 데 쓴다.
+    """
+    if not raw_name:
+        return None
+    s = unicodedata.normalize("NFKC", str(raw_name)).strip()
+    for prefixes, group in _LEGAL_FORM_GROUPS:
+        for prefix in prefixes:
+            if s.startswith(prefix) or prefix in s:
+                return group
+    return None
+
+
 def extract_region_code(address: str | None) -> str:
-    """주소 문자열 앞부분에서 시도 코드 추출. 실패 시 '99'."""
+    """주소(또는 등록기관명) 앞부분에서 시도 코드 추출. 실패 시 '99'."""
     if not address:
         return REGION_UNKNOWN
     s = unicodedata.normalize("NFKC", str(address)).strip()
+    s = _ZIPCODE_PREFIX_RE.sub("", s)
     head = s[:12]
     for name, code in _SIDO_PATTERNS:
         if head.startswith(name):
@@ -111,7 +145,7 @@ def extract_district(address: str | None) -> str | None:
     """시군구명 추출 (시도명 제거 후 첫 시/군/구 토큰)."""
     if not address:
         return None
-    s = unicodedata.normalize("NFKC", str(address)).strip()
+    s = _ZIPCODE_PREFIX_RE.sub("", unicodedata.normalize("NFKC", str(address)).strip())
     for name, _ in _SIDO_PATTERNS:
         if s.startswith(name):
             s = s[len(name):].strip()
