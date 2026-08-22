@@ -23,8 +23,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.enums import (
     AssetSize,
     BatchStatus,
-    DedupResult,
     DealStage,
+    DedupResult,
     LeadStatus,
     Role,
     StageSignal,
