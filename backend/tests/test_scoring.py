@@ -58,7 +58,8 @@ def test_future_dates_do_not_count_as_new():
 
 
 @pytest.mark.parametrize(
-    ("days", "rule"), [(0, "FRESH.7D"), (7, "FRESH.7D"), (8, "FRESH.30D"), (31, "FRESH.90D"), (91, "FRESH.OLD")]
+    ("days", "rule"),
+    [(0, "FRESH.7D"), (7, "FRESH.7D"), (8, "FRESH.30D"), (31, "FRESH.90D"), (91, "FRESH.OLD")],
 )
 def test_freshness_rule(days, rule):
     assert freshness_rule(REF - timedelta(days=days), REF) == rule
@@ -82,7 +83,8 @@ def test_region_rule(cfg, code, rule):
 
 
 @pytest.mark.parametrize(
-    ("score", "grade"), [(100, "A"), (85, "A"), (84, "B"), (70, "B"), (69, "C"), (55, "C"), (54, "D"), (0, "D")]
+    ("score", "grade"),
+    [(100, "A"), (85, "A"), (84, "B"), (70, "B"), (69, "C"), (55, "C"), (54, "D"), (0, "D")],
 )
 def test_grade_for(score, grade):
     assert grade_for(score) == grade
@@ -187,4 +189,5 @@ def test_core_region_list_is_configurable(cfg):
 
 def test_scoring_seed_totals_100():
     pts = {k: p for k, p, _, _ in SCORING_SEED}
-    assert pts["STAGE.NEW_PERMIT"] + pts["TYPE.FOUNDATION"] + pts["ASSET.LARGE"] + pts["REGION.CORE"] + pts["FRESH.7D"] == 100
+    top = ["STAGE.NEW_PERMIT", "TYPE.FOUNDATION", "ASSET.LARGE", "REGION.CORE", "FRESH.7D"]
+    assert sum(pts[k] for k in top) == 100

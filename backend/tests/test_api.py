@@ -229,7 +229,9 @@ def test_assignment_sets_status_and_suggests_by_region(client, users):
 
     sales_id = users["sales@test.kr"].id
     assigned = client.post(
-        "/api/v1/leads/assign", headers=headers, json={"lead_ids": [seoul_lead["id"]], "assignee_id": sales_id}
+        "/api/v1/leads/assign",
+        headers=headers,
+        json={"lead_ids": [seoul_lead["id"]], "assignee_id": sales_id},
     ).json()
     assert assigned[0]["status"] == LeadStatus.ASSIGNED
     assert assigned[0]["assignee_id"] == sales_id
@@ -346,7 +348,9 @@ def test_won_deal_sets_closed_at(client, users):
     _upload_moef(client, admin)
     lead_id = client.get("/api/v1/leads", headers=admin).json()["items"][0]["id"]
     deal_id = client.post(
-        "/api/v1/deals", headers=admin, json={"lead_id": lead_id, "product_code": "WEHAGO", "amount": 5_000_000}
+        "/api/v1/deals",
+        headers=admin,
+        json={"lead_id": lead_id, "product_code": "WEHAGO", "amount": 5_000_000},
     ).json()["id"]
     won = client.patch(f"/api/v1/deals/{deal_id}", headers=admin, json={"stage": "WON"}).json()
     assert won["stage"] == "WON" and won["closed_at"] is not None

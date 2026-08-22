@@ -28,3 +28,9 @@ samples/*.csv
 
 # 업로드 파일
 backend/uploads/
+
+# 프론트 빌드 산출물
+frontend/dist/
+
+# tsc 증분 빌드 캐시
+frontend/tsconfig.tsbuildinfo
