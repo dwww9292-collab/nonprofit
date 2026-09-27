@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import random
+import secrets
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
@@ -69,7 +71,9 @@ ORG_TYPES = [
 ]
 
 
-def create_demo_users(db: Session, password: str = "demo1234!") -> list[User]:
+def create_demo_users(db: Session, password: str | None = None) -> tuple[list[User], str]:
+    """데모 계정 생성. 비밀번호는 DEMO_PASSWORD 환경변수, 없으면 임의 생성해 함께 반환한다."""
+    password = password or os.getenv("DEMO_PASSWORD") or secrets.token_urlsafe(12)
     users = []
     for email, name, role, regions in DEMO_USERS:
         user = db.scalars(select(User).where(User.email == email)).first()
@@ -85,7 +89,7 @@ def create_demo_users(db: Session, password: str = "demo1234!") -> list[User]:
             db.add(user)
         users.append(user)
     db.flush()
-    return users
+    return users, password
 
 
 def create_demo_leads(db: Session, count: int = 30, seed: int = 20260822) -> list[Lead]:
@@ -221,8 +225,8 @@ def create_demo_pipeline(db: Session, leads: list[Lead], users: list[User], seed
     db.flush()
 
 
-def create_demo_data(db: Session, count: int = 30) -> dict[str, int]:
-    users = create_demo_users(db)
+def create_demo_data(db: Session, count: int = 30) -> dict:
+    users, password = create_demo_users(db)
     leads = create_demo_leads(db, count)
     create_demo_pipeline(db, leads, users)
-    return {"users": len(users), "leads": len(leads)}
+    return {"users": len(users), "leads": len(leads), "demo_password": password}

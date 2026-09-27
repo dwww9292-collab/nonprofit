@@ -21,6 +21,8 @@ dependencies = [
     "python-multipart>=0.0.12",
     "pandas>=2.2",
     "openpyxl>=3.1",
+    # 행안부 비영리민간단체 원본이 구형 .xls 포맷이라 필요
+    "xlrd>=2.0",
 ]
 
 [project.optional-dependencies]

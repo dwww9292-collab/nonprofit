@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 
-import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+# 앱 모듈을 import하기 전에 테스트용 비밀값을 넣는다.
+# 운영 설정에는 기본값이 없어(공개 저장소에 비밀번호가 남지 않도록) 미설정 시 기동이 실패한다.
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://npo:npo@localhost:5432/npo_sales_test")
+os.environ.setdefault("JWT_SECRET", "test-only-secret-not-used-anywhere-else")
+os.environ.setdefault("ADMIN_PASSWORD", "test-only-admin-password")
 
-from app.models import Base
-from app.services.seed import ensure_admin, seed_all
+import pytest  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
+from app.models import Base  # noqa: E402
+from app.services.seed import ensure_admin, seed_all  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)

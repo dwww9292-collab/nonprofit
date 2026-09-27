@@ -8,9 +8,14 @@
 ## 빠른 시작 (Docker)
 
 ```bash
-cp .env.example .env      # JWT_SECRET / ADMIN_PASSWORD는 반드시 변경
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # JWT_SECRET에 붙여넣기
+# .env를 열어 JWT_SECRET / ADMIN_PASSWORD / POSTGRES_PASSWORD를 채운다
 docker compose up --build
 ```
+
+비밀값에는 기본값을 두지 않았다. 비워두면 compose가 기동을 거부하고 어떤 값이 빠졌는지 알려준다.
+저장소에 공개된 비밀번호로 서비스가 떠버리는 사고를 막기 위한 의도적인 설계다.
 
 - 화면: http://localhost:3000
 - API 문서: http://localhost:8000/api/docs
@@ -79,7 +84,14 @@ frontend/src/pages/    로그인 · 대시보드 · 리드목록 · 리드상세
 
 | 구분 | 계정 | 비밀번호 |
 |---|---|---|
-| 관리자 | `.env`의 `ADMIN_EMAIL` (기본 admin@ionesoftbank.co.kr) | `.env`의 `ADMIN_PASSWORD` |
-| 데모 팀장/영업 | manager@ / sales1~3@ionesoftbank.co.kr | demo1234! |
+| 관리자 | `.env`의 `ADMIN_EMAIL` | `.env`의 `ADMIN_PASSWORD` |
+| 데모 팀장/영업 | `--demo` 실행 시 생성 | 실행 결과에 출력됨 (`DEMO_PASSWORD`로 지정 가능) |
 
-운영 배포 전 `JWT_SECRET`과 관리자 비밀번호를 반드시 교체하십시오.
+## 비밀 관리
+
+- `DATABASE_URL`, `JWT_SECRET`, `ADMIN_PASSWORD`는 **코드에 기본값이 없다.** 미설정 시 기동 실패.
+- `.env`는 `.gitignore`에 포함돼 저장소에 올라가지 않는다.
+- 수집 원본 파일(`samples/*.xlsx`, `*.xls`, `*.csv`)에는 대표자 성명·연락처가 들어 있어
+  역시 `.gitignore` 대상이다. 커밋하지 말 것.
+- 대표자 성명 열람은 `audit_logs`에 기록된다 (`VIEW_LEAD_DETAIL`).
+- DB 포트는 compose에서 호스트로 노출하지 않는다. 앱 포트도 `127.0.0.1`에만 바인딩한다.

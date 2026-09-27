@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import argparse
 
-from app.core.config import settings
 from app.core.db import SessionLocal
-from app.services.demo_data import create_demo_data
+from app.services.demo_data import DEMO_USERS, create_demo_data
 from app.services.seed import ensure_admin, seed_all, seed_scoring
 
 
@@ -29,11 +28,13 @@ def main() -> None:
             print("스코어링 배점을 문서 기본값으로 재설정했습니다.")
         admin = ensure_admin(db)
         print(f"기본 시드 완료: {stats}")
-        print(f"관리자 계정: {admin.email} / 비밀번호는 .env의 ADMIN_PASSWORD ({settings.admin_password})")
+        print(f"관리자 계정: {admin.email} / 비밀번호는 .env의 ADMIN_PASSWORD 값입니다")
 
         if args.demo:
             demo = create_demo_data(db, args.demo_count)
-            print(f"데모 데이터 생성: {demo} (데모 계정 비밀번호: demo1234!)")
+            password = demo.pop("demo_password")
+            print(f"데모 데이터 생성: {demo}")
+            print(f"데모 계정({', '.join(e for e, *_ in DEMO_USERS)}) 비밀번호: {password}")
 
         db.commit()
 
