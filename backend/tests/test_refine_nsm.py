@@ -7,6 +7,7 @@ import pytest
 from scripts.refine_nsm import (
     PRODUCTS,
     classify_phone,
+    count_valid_phone,
     is_valid_phone,
     normalize_org_name,
     parse_period,
@@ -127,3 +128,64 @@ class TestIsValidPhone:
         assert not is_valid_phone("없음")
         assert not is_valid_phone("무효(0패턴)")
         assert not is_valid_phone("지역번호누락")
+
+
+class TestCountValidPhone:
+    def test_빈_Series는_0을_돌려준다(self):
+        # 문자열 dtype 의 빈 Series 는 .sum() 이 '' 를 돌려줘서 int() 가 깨진다.
+        # 보유 단체가 0곳인 제품을 집계할 때 실제로 터졌던 경로다.
+        import pandas as pd
+
+        for dtype in ("str", "object"):
+            assert count_valid_phone(pd.Series([], dtype=dtype)) == 0
+
+    def test_유효_접두사만_센다(self):
+        import pandas as pd
+
+        s = pd.Series(["유효", "유효(대표번호)", "없음", "무효(0패턴)", "지역번호누락"])
+        assert count_valid_phone(s) == 2
+
+
+class TestLegalKindGate:
+    """match_nsm 의 법인격 게이트 — 위양성을 막는 핵심 장치."""
+
+    def test_법인격_종류를_읽는다(self):
+        from scripts.match_nsm import legal_kind
+
+        assert legal_kind("(사)굿라이프") == "사단"
+        assert legal_kind("재단법인 경기테크노파크") == "재단"
+        assert legal_kind("주식회사 굿라이프") == "영리"
+        assert legal_kind("가나사회적협동조합") == "협동조합"
+        assert legal_kind("(학)덕성학원") == "학교"
+        assert legal_kind("남동문화원") == ""
+
+    def test_비영리와_영리는_같은_이름이어도_다른_법인이다(self):
+        from scripts.match_nsm import kinds_compatible
+
+        assert not kinds_compatible("사단", "영리")
+        assert not kinds_compatible("협동조합", "영리")
+        assert not kinds_compatible("재단", "사단")
+
+    def test_한쪽_표기가_없으면_통과시킨다(self):
+        from scripts.match_nsm import kinds_compatible
+
+        assert kinds_compatible("", "사단")
+        assert kinds_compatible("재단", "")
+        assert kinds_compatible("", "")
+
+    def test_같은_종류는_통과한다(self):
+        from scripts.match_nsm import kinds_compatible
+
+        assert kinds_compatible("재단", "재단")
+
+    def test_결측은_표기없음과_같게_다룬다(self):
+        # NaN 은 truthy 고 pd.NA 는 비교하면 TypeError 라서, 결측이 그대로 들어오면
+        # '표기 없음'이 '값이 있음'으로 둔갑해 후보가 전부 걸러졌던 자리다.
+        import pandas as pd
+
+        from scripts.match_nsm import kinds_compatible
+
+        assert kinds_compatible(float("nan"), "사단")
+        assert kinds_compatible(pd.NA, "사단")
+        assert kinds_compatible(None, "영리")
+        assert kinds_compatible("사단", float("nan"))

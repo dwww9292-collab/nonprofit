@@ -40,6 +40,26 @@ docker compose exec backend python -m scripts.ingest auto /data
 
 출처별 다운로드 경로와 파일 구조는 `docs/04-data-sources.md` 에 있다.
 
+## NSM 제품군 매칭
+
+NSM(더존 영업관리) 고객 마스터와 맞춰 '이 비영리단체가 실제로 어떤 더존 제품을 쓰는가'를
+붙인다. 공개데이터에는 사업자번호가 없어 단체명·대표전화·시도·법인격을 함께 쓴다.
+
+```bash
+# 공개데이터 전체(약 23,000곳) × NSM 마스터
+docker compose exec backend python -m scripts.match_nsm \
+  --nsm /data/nsm_customer.xlsx \
+  --npo /data/mois_npo_20260331.xls \
+  --moef /data/moef_designation_2026Q2.xlsx \
+  -o /data/nsm_매칭결과.xlsx
+
+# 이미 매칭된 엑셀의 구매제품군만 조회 가능한 형태로 정제
+docker compose exec backend python -m scripts.refine_nsm /data/매칭결과.xlsx
+```
+
+제품 분류표와 상향경로 규칙은 `backend/scripts/refine_nsm.py` 상단의 `PRODUCTS`,
+`UPSELL_RULES` 한 곳에 있다. 영업 정책이 바뀌면 그 표만 고치면 산출물이 따라 바뀐다.
+
 ## 사내 서버 배포
 
 사내 맥을 서버로 쓰는 전체 절차(잠자기 해제, 자동 기동, 사내망 공개 범위, Tailscale,

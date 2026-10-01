@@ -41,23 +41,39 @@ PRODUCTS: dict[str, dict] = {
     "ICUBE G20": {"name": "iCUBE G20", "family": "ICUBE", "line": LINE_ERP, "tier": 3},
     "Amaranth 10": {"name": "Amaranth 10", "family": "AMARANTH10", "line": LINE_ERP, "tier": 4},
     "Amaranth 10 클라우드": {"name": "Amaranth 10 클라우드", "family": "AMARANTH10", "line": LINE_ERP, "tier": 4},
+    "OmniEsol": {"name": "OmniEsol", "family": "OMNIESOL", "line": LINE_ERP, "tier": 5},
+    "더닥터플러스존": {"name": "더닥터플러스존", "family": "DOCTOR_PLUS", "line": LINE_ERP, "tier": 3},
     "IDC-서비스": {"name": "IDC-서비스", "family": "IDC", "line": LINE_ADDON, "tier": 0},
     "IDC-하드웨어": {"name": "IDC-하드웨어", "family": "IDC", "line": LINE_ADDON, "tier": 0},
     "FAX": {"name": "FAX", "family": "FAX", "line": LINE_ADDON, "tier": 0},
     "전자금융상품": {"name": "전자금융상품", "family": "EBANKING", "line": LINE_ADDON, "tier": 0},
     "융합보안사업": {"name": "융합보안사업", "family": "SECURITY", "line": LINE_ADDON, "tier": 0},
     "기타-하드웨어": {"name": "기타-하드웨어", "family": "HARDWARE", "line": LINE_ADDON, "tier": 0},
+    # IFRS 는 회계기준 모듈이라 ERP 단계를 매기지 않는다. 다만 도입했다는 사실 자체가
+    # 외부감사를 받는 규모라는 신호이므로 부가서비스로 남겨 집계에 보이게 한다.
+    "IFRS": {"name": "IFRS", "family": "IFRS", "line": LINE_ADDON, "tier": 0},
 }
 
 # 피벗용 보유 플래그를 세울 계열 (ERP 본제품만)
-ERP_FAMILIES = ["SMART_A", "BIZBOX", "WEHAGO", "ERP_IU", "ICUBE", "AMARANTH10"]
+ERP_FAMILIES = [
+    "SMART_A",
+    "BIZBOX",
+    "WEHAGO",
+    "ERP_IU",
+    "ICUBE",
+    "DOCTOR_PLUS",
+    "AMARANTH10",
+    "OMNIESOL",
+]
 FAMILY_LABEL = {
     "SMART_A": "Smart A",
     "BIZBOX": "Bizbox",
     "WEHAGO": "WEHAGO",
     "ERP_IU": "ERP-iU",
     "ICUBE": "iCUBE",
+    "DOCTOR_PLUS": "더닥터플러스존",
     "AMARANTH10": "Amaranth 10",
+    "OMNIESOL": "OmniEsol",
 }
 
 # 상향 경로 — (계열, 경로명, 우선순위, 근거). 위에서부터 먼저 맞는 것을 쓴다.
@@ -70,9 +86,11 @@ FAMILY_LABEL = {
 #  - ICUBE 를 WEHAGO 보다 위에 둔다: 둘을 함께 쓰는 곳의 회계 주 시스템은 iCUBE 이고
 #    WEHAGO 는 플랫폼이라, 상향 제안의 대상은 iCUBE 쪽이다.
 UPSELL_RULES: list[tuple[str, str, int, str]] = [
+    ("OMNIESOL", "OmniEsol 보유 → 당사 주력 대상 아님", 4, "대기업용 ERP. 상향할 상위 제품이 없다"),
     ("AMARANTH10", "Amaranth 10 보유 → SI·홈페이지·추가모듈", 3, "주력 제품 이미 보유. 신규 판매보다 추가 과제 발굴"),
     ("ERP_IU", "ERP-iU 단종계열 → Amaranth 10 전환", 1, "구형 ERP만 사용 중. 전환 명분이 가장 뚜렷하다"),
     ("ICUBE", "iCUBE → Amaranth 10 상향", 2, "중소기업용 ERP. 상향 가능하나 제품 담당 파트너 확인 필요"),
+    ("DOCTOR_PLUS", "병원 특화 솔루션 보유 → Amaranth 10 상향 검토", 2, "의료기관 전용 제품. 회계 요건은 별도로 남아 있다"),
     ("WEHAGO", "WEHAGO 보유 → Amaranth 10 상향", 1, "당사 주력 상향 경로. 최우선"),
     ("SMART_A", "Smart A 보유 → WEHAGO·Amaranth 10 상향", 2, "소규모 회계 제품만 보유. 상향 여지 큼"),
     ("BIZBOX", "그룹웨어만 보유 → ERP 신규 제안", 2, "ERP 미보유. 회계 요건을 명분으로 신규 제안"),
@@ -111,6 +129,17 @@ def classify_phone(value) -> str:
 
 def is_valid_phone(status: str) -> bool:
     return str(status).startswith("유효")
+
+
+def count_valid_phone(statuses: "pd.Series") -> int:
+    """연락처상태 열에서 통화 가능한 건수.
+
+    빈 Series 에 .map(...).sum() 을 직접 쓰면 안 된다. 문자열 dtype 의 빈 Series 는
+    합이 0 이 아니라 '' (문자열 결합의 항등원)로 나와 int() 가 깨진다.
+    """
+    if len(statuses) == 0:
+        return 0
+    return int(statuses.map(is_valid_phone).sum())
 
 
 def normalize_org_name(value) -> str:
@@ -281,7 +310,7 @@ def refine(src: Path, asof: date) -> tuple[dict[str, pd.DataFrame], list[str]]:
                 "보유 단체수": len(sub),
                 "신규지정": int((sub["구분"] == "신규지정").sum()),
                 "만료임박": int((sub["구분"] == "만료임박").sum()),
-                "연락처 유효": int(sub["연락처상태"].map(is_valid_phone).sum()),
+                "연락처 유효": count_valid_phone(sub["연락처상태"]),
             }
         )
     addon_counts: dict[str, int] = {}
@@ -299,7 +328,7 @@ def refine(src: Path, asof: date) -> tuple[dict[str, pd.DataFrame], list[str]]:
             단체수=("단체명", "size"),
             신규지정=("구분", lambda s: int((s == "신규지정").sum())),
             만료임박=("구분", lambda s: int((s == "만료임박").sum())),
-            연락처유효=("연락처상태", lambda s: int(s.map(is_valid_phone).sum())),
+            연락처유효=("연락처상태", count_valid_phone),
         )
         .reset_index()
         .sort_values(["영업우선순위", "단체수"], ascending=[True, False])
@@ -323,7 +352,7 @@ def refine(src: Path, asof: date) -> tuple[dict[str, pd.DataFrame], list[str]]:
             ("WEHAGO 보유", int((held["보유_WEHAGO"] == "O").sum())),
             ("iCUBE 계열 보유", int((held["보유_iCUBE"] == "O").sum())),
             ("", ""),
-            ("연락처 유효", int(clean["연락처상태"].map(is_valid_phone).sum())),
+            ("연락처 유효", count_valid_phone(clean["연락처상태"])),
             ("연락처 무효·확인필요", int((~clean["연락처상태"].map(is_valid_phone) & (clean["연락처상태"] != "없음")).sum())),
             ("연락처 없음", int((clean["연락처상태"] == "없음").sum())),
         ],
