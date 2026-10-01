@@ -8,6 +8,15 @@ import {
 } from '../components/ui'
 import type { Activity, AssigneeSuggestion, Deal, LeadDetail } from '../types'
 
+/** NSM 사업자번호는 숫자 10자리로 들어온다. 사람이 NSM 에 그대로 붙여넣으므로 서식을 준다. */
+function formatBizNo(value: string | null): string {
+  if (!value) return '-'
+  const digits = value.replace(/\D/g, '')
+  return digits.length === 10
+    ? `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`
+    : value
+}
+
 export default function LeadDetailPage() {
   const { id } = useParams()
   const { user, meta, can } = useAuth()
@@ -142,8 +151,69 @@ export default function LeadDetailPage() {
           </dl>
         </Card>
 
-        {/* 중: 스코어 + 딜 */}
+        {/* 중: NSM 제품 + 스코어 + 딜 */}
         <div className="space-y-4">
+          <Card title="더존 제품 보유 현황 (NSM)">
+            {lead.nsm_matched ? (
+              <dl className="space-y-2 text-sm">
+                {lead.upsell_path && (
+                  <div className="mb-3 rounded bg-slate-50 p-2">
+                    <p className="text-xs text-slate-500">상향 경로</p>
+                    <p className="font-medium text-slate-800">{lead.upsell_path}</p>
+                    {lead.upsell_priority != null && (
+                      <Badge tone={lead.upsell_priority === 1 ? 'red' : lead.upsell_priority === 2 ? 'amber' : 'blue'}>
+                        영업 {lead.upsell_priority}순위
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                {[
+                  ['보유 제품', lead.nsm_products ?? '-'],
+                  ['주력 제품', lead.nsm_top_product || '-'],
+                  ['NSM 회사명', lead.nsm_company_name ?? '-'],
+                  ['사업자번호', formatBizNo(lead.nsm_biz_reg_no)],
+                  ['거래처코드', lead.nsm_customer_code ?? '-'],
+                  ['NSM 영업담당', lead.nsm_sales_owner ?? '-'],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-xs text-slate-500">{k}</dt>
+                    <dd className="text-slate-700">{v}</dd>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-xs text-slate-500">매칭 근거</dt>
+                  <dd className="text-xs text-slate-600">
+                    {lead.nsm_match_basis ?? '-'}
+                    {lead.nsm_match_confidence && (
+                      <Badge tone={lead.nsm_match_confidence === '높음' ? 'green' : lead.nsm_match_confidence === '중간' ? 'blue' : 'amber'}>
+                        신뢰도 {lead.nsm_match_confidence}
+                      </Badge>
+                    )}
+                  </dd>
+                </div>
+                {lead.nsm_match_confidence === '확인필요' && (
+                  <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">
+                    동명 법인이 여러 건이거나 법인격이 어긋납니다. 영업 전에 사업자번호로 확인하세요.
+                  </p>
+                )}
+                <p className="pt-1 text-[11px] text-slate-400">
+                  NSM 동기화: {formatDate(lead.nsm_synced_at)}
+                </p>
+              </dl>
+            ) : (
+              <div className="text-sm">
+                <p className="text-emerald-700">NSM에 없는 단체입니다 — 신규 개척 대상.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  단체명·대표전화·시도·법인격으로 대조한 결과입니다. 표기가 달라 못 찾았을 수 있으니
+                  사업자번호를 알게 되면 NSM에서 직접 조회해 보세요.
+                </p>
+                {lead.nsm_synced_at && (
+                  <p className="pt-2 text-[11px] text-slate-400">NSM 동기화: {formatDate(lead.nsm_synced_at)}</p>
+                )}
+              </div>
+            )}
+          </Card>
+
           <Card title="리드 스코어">
             <div className="mb-3 flex items-baseline gap-2">
               <span className="text-3xl font-bold text-slate-800">{lead.score}</span>

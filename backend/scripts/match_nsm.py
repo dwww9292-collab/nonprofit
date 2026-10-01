@@ -361,7 +361,12 @@ def pick_best(hits: list[int], nsm: pd.DataFrame, kind: str = "") -> int:
     return max(hits, key=score)
 
 
-def summarize_products(value) -> dict:
+def product_profile(value) -> dict:
+    """구매제품군 문자열 → 구조화된 결과.
+
+    DB 반영(scripts/sync_nsm.py)과 엑셀 산출 양쪽이 이 함수를 쓴다. 분류·상향 규칙이
+    두 벌로 갈리면 화면과 엑셀이 서로 다른 답을 하게 된다.
+    """
     known, unknown = split_products(value)
     metas = [PRODUCTS[t] for t in known]
     erp = [m for m in metas if m["line"] == LINE_ERP]
@@ -373,12 +378,36 @@ def summarize_products(value) -> dict:
     if "AMARANTH10" in families:
         stale = [FAMILY_LABEL[f] for f in LEGACY_WITH_A10 if f in families]
         legacy = ", ".join(stale)
+    return {
+        "families": sorted(families),
+        "priority": priority or None,
+        "path": path,
+        "note": note,
+        "legacy": legacy,
+        "unknown": unknown,
+        "all_names": [m["name"] for m in metas],
+        "erp_names": [m["name"] for m in erp],
+        "addon_names": [m["name"] for m in addon],
+        "top_name": top["name"] if top else "",
+        "tier": top["tier"] if top else 0,
+    }
+
+
+def summarize_products(value) -> dict:
+    """엑셀 시트에 그대로 쓸 열 모음."""
+    p = product_profile(value)
+    metas = p["all_names"]
+    erp = p["erp_names"]
+    addon = p["addon_names"]
+    families = set(p["families"])
+    unknown = p["unknown"]
+    top, path, priority, note, legacy = p["top_name"], p["path"], p["priority"], p["note"], p["legacy"]
     out = {
-        "보유제품_전체": ", ".join(m["name"] for m in metas),
-        "ERP본제품": ", ".join(m["name"] for m in erp),
-        "주력제품": top["name"] if top else "",
-        "제품단계": top["tier"] if top else 0,
-        "부가서비스": ", ".join(m["name"] for m in addon),
+        "보유제품_전체": ", ".join(metas),
+        "ERP본제품": ", ".join(erp),
+        "주력제품": top,
+        "제품단계": p["tier"],
+        "부가서비스": ", ".join(addon),
         "부가서비스수": len(addon),
         "제품수": len(metas),
         "미분류제품": ", ".join(unknown),

@@ -129,6 +129,26 @@ class Lead(TimestampMixin, Base):
     possible_dup_lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id"), nullable=True)
     # 기재부 누계에서 사라진 행 → 지정취소 가능성 (docs/04-data-sources.md)
     possible_revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # --- NSM(더존 영업관리) 고객 마스터 매칭 결과 (scripts/sync_nsm.py) ---
+    # 공개데이터에는 사업자번호가 없어 단체명·전화·시도·법인격을 조합해 맞춘다.
+    # 어떤 근거로 맞췄는지와 신뢰도를 함께 남겨, 영업에 쓸 때 판단할 수 있게 한다.
+    nsm_matched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    nsm_match_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    nsm_match_basis: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    nsm_company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    nsm_customer_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # leads.biz_reg_no 에는 고유 제약이 걸려 있어 NSM 값을 그대로 넣으면 충돌한다
+    # (동일 사업자번호가 여러 리드에 붙을 수 있다). 별도 열에 보관한다.
+    nsm_biz_reg_no: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    nsm_products: Mapped[str | None] = mapped_column(String(300), nullable=True)  # 표시용
+    nsm_product_families: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # 필터용
+    nsm_top_product: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    nsm_product_tier: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nsm_sales_owner: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    upsell_path: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    upsell_priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    nsm_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), nullable=False)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -141,6 +161,11 @@ class Lead(TimestampMixin, Base):
         Index("ix_leads_status_assignee", "status", "assignee_id"),
         Index("ix_leads_grade_score", "grade", "score"),
         Index("ix_leads_collected_at", "collected_at"),
+        # 영업 화면의 주 진입 경로: 상향 우선순위 → 제품 단계
+        Index("ix_leads_upsell", "upsell_priority", "nsm_product_tier"),
+        # 보유 제품 필터는 JSONB 배열 포함 검색(@>)이라 GIN 이어야 한다.
+        # 모델에 선언해 두지 않으면 autogenerate 가 이 인덱스를 지우려 한다.
+        Index("ix_leads_nsm_families", "nsm_product_families", postgresql_using="gin"),
         CheckConstraint("score >= 0 AND score <= 100", name="ck_leads_score_range"),
     )
 

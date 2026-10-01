@@ -497,3 +497,100 @@ def test_meta_enums_exposed(client, users):
     assert len(body["products"]) == 5
     assert len(body["regions"]) == 18
     assert any(link["code"] == "IROS" for link in body["external_links"])
+
+
+# --- NSM 제품군 필터 ---
+
+
+def _nsm_fixture(db):
+    """NSM 매칭 결과가 다른 리드 3건. 필터가 실제로 갈라내는지 보려는 것."""
+    leads = db.scalars(select(Lead).order_by(Lead.id)).all()
+    assert len(leads) >= 2, "선행 업로드로 리드가 있어야 한다"
+    a, b = leads[0], leads[1]
+    a.nsm_matched = True
+    a.nsm_product_families = ["WEHAGO", "SMART_A"]
+    a.nsm_top_product = "WEHAGO"
+    a.nsm_products = "Smart A, WEHAGO"
+    a.nsm_product_tier = 2
+    a.upsell_path = "WEHAGO 보유 → Amaranth 10 상향"
+    a.upsell_priority = 1
+    a.nsm_match_confidence = "높음"
+    a.phone = "02-1234-5678"
+
+    b.nsm_matched = True
+    b.nsm_product_families = ["AMARANTH10", "ICUBE"]
+    b.nsm_top_product = "Amaranth 10"
+    b.nsm_product_tier = 4
+    b.upsell_path = "Amaranth 10 보유 → SI·홈페이지·추가모듈"
+    b.upsell_priority = 3
+    b.nsm_match_confidence = "중간"
+    b.phone = None
+    db.flush()
+    return a, b
+
+
+def test_nsm_product_filter_uses_jsonb_containment(client, users, db):
+    headers = auth_headers(client, "admin@test.kr", "test1234!")
+    _upload_moef(client, headers)
+    a, b = _nsm_fixture(db)
+
+    only_wehago = client.get("/api/v1/leads?nsm_product=WEHAGO", headers=headers).json()
+    assert [i["id"] for i in only_wehago["items"]] == [a.id]
+
+    only_a10 = client.get("/api/v1/leads?nsm_product=AMARANTH10", headers=headers).json()
+    assert [i["id"] for i in only_a10["items"]] == [b.id]
+
+    # 여러 제품은 '하나라도 보유'(OR)
+    either = client.get("/api/v1/leads?nsm_product=WEHAGO&nsm_product=AMARANTH10", headers=headers).json()
+    assert {i["id"] for i in either["items"]} == {a.id, b.id}
+
+
+def test_nsm_matched_and_upsell_priority_filters(client, users, db):
+    headers = auth_headers(client, "admin@test.kr", "test1234!")
+    _upload_moef(client, headers)
+    a, b = _nsm_fixture(db)
+
+    assert client.get("/api/v1/leads?nsm_matched=true", headers=headers).json()["total"] == 2
+    assert client.get("/api/v1/leads?nsm_matched=false", headers=headers).json()["total"] == 0
+
+    p1 = client.get("/api/v1/leads?upsell_priority=1", headers=headers).json()
+    assert [i["id"] for i in p1["items"]] == [a.id]
+    both = client.get("/api/v1/leads?upsell_priority=1&upsell_priority=3", headers=headers).json()
+    assert both["total"] == 2
+
+
+def test_has_phone_filter_splits_leads_needing_research(client, users, db):
+    """연락처 없는 리드를 뽑아내는 필터 — 조사 대상 목록을 만드는 데 쓴다."""
+    headers = auth_headers(client, "admin@test.kr", "test1234!")
+    _upload_moef(client, headers)
+    a, b = _nsm_fixture(db)
+
+    with_phone = client.get("/api/v1/leads?has_phone=true", headers=headers).json()
+    assert [i["id"] for i in with_phone["items"]] == [a.id]
+    without = client.get("/api/v1/leads?has_phone=false", headers=headers).json()
+    assert [i["id"] for i in without["items"]] == [b.id]
+
+
+def test_upsell_priority_sort_puts_most_urgent_first(client, users, db):
+    """1순위가 가장 급하므로 오름차순이 '중요한 순'이고, 미매칭(NULL)은 뒤로 간다."""
+    headers = auth_headers(client, "admin@test.kr", "test1234!")
+    _upload_moef(client, headers)
+    a, b = _nsm_fixture(db)
+    b.upsell_priority = None
+    db.flush()
+
+    body = client.get("/api/v1/leads?sort=upsell_priority&order=asc", headers=headers).json()
+    assert body["items"][0]["id"] == a.id
+    assert body["items"][-1]["id"] == b.id, "우선순위 없는 리드는 뒤로"
+
+
+def test_lead_list_exposes_nsm_fields(client, users, db):
+    headers = auth_headers(client, "admin@test.kr", "test1234!")
+    _upload_moef(client, headers)
+    a, _ = _nsm_fixture(db)
+    item = next(
+        i for i in client.get("/api/v1/leads", headers=headers).json()["items"] if i["id"] == a.id
+    )
+    assert item["nsm_top_product"] == "WEHAGO"
+    assert item["upsell_priority"] == 1
+    assert item["nsm_match_confidence"] == "높음"

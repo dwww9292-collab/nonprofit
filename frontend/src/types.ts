@@ -54,6 +54,12 @@ export interface Lead {
   is_existing_customer: boolean
   possible_dup_lead_id: number | null
   possible_revoked: boolean
+  nsm_matched: boolean
+  nsm_top_product: string | null
+  nsm_products: string | null
+  upsell_path: string | null
+  upsell_priority: number | null
+  nsm_match_confidence: string | null
 }
 
 export interface LeadDetail extends Lead {
@@ -74,7 +80,35 @@ export interface LeadDetail extends Lead {
   assigned_at: string | null
   first_contacted_at: string | null
   sources: Source[]
+  nsm_company_name: string | null
+  nsm_customer_code: string | null
+  nsm_biz_reg_no: string | null
+  nsm_product_families: string[] | null
+  nsm_product_tier: number
+  nsm_sales_owner: string | null
+  nsm_match_basis: string | null
+  nsm_synced_at: string | null
 }
+
+/** NSM 제품 계열 필터 — 코드는 backend scripts/refine_nsm.py 의 FAMILY_LABEL 과 맞춘다. */
+export const NSM_PRODUCTS: { code: string; label: string }[] = [
+  { code: 'AMARANTH10', label: 'Amaranth 10' },
+  { code: 'WEHAGO', label: 'WEHAGO' },
+  { code: 'ICUBE', label: 'iCUBE' },
+  { code: 'SMART_A', label: 'Smart A' },
+  { code: 'BIZBOX', label: 'Bizbox' },
+  { code: 'ERP_IU', label: 'ERP-iU' },
+  { code: 'DOCTOR_PLUS', label: '더닥터플러스존' },
+  { code: 'OMNIESOL', label: 'OmniEsol' },
+]
+
+/** 상향 우선순위 — 1이 가장 급하다. */
+export const UPSELL_PRIORITIES: { code: string; label: string }[] = [
+  { code: '1', label: '1순위 (A10 상향·전환)' },
+  { code: '2', label: '2순위 (상향 여지)' },
+  { code: '3', label: '3순위 (A10 보유 → 추가과제)' },
+  { code: '4', label: '4순위 (대상 아님)' },
+]
 
 export interface Page<T> { items: T[]; total: number; page: number; size: number }
 

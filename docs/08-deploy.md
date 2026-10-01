@@ -243,7 +243,38 @@ db.commit()
 
 관리자로 로그인해 **설정** 화면의 **전체 재계산 실행** 버튼으로도 같은 작업을 할 수 있다.
 
-## 7. 점검 체크리스트
+## 7. pg_trgm 한글 판정 점검 (기존 볼륨이라면 반드시)
+
+유사 명칭 중복의심(중복판정 4단계)은 pg_trgm 의 `similarity()` 에 기댄다. pg_trgm 은
+`LC_CTYPE` 으로 무엇이 '문자'인지 판정하는데, 로케일이 `C` 이면 한글이 문자로 분류되지
+않아 트라이그램이 하나도 만들어지지 않는다. 그러면 오류 없이 **조용히** 유사도가 늘 0이
+되고, 중복의심 배지가 한 번도 뜨지 않는다.
+
+`postgres:16-alpine` 은 기본 로케일이 `C` 라서 이 상태로 초기화됐을 수 있다. 확인:
+
+```bash
+docker compose exec db psql -U "$POSTGRES_USER" -d npo_sales   -c "SELECT similarity('예시복지재단','예시복지재단') AS must_be_1;"
+```
+
+- `1` 이면 정상이다.
+- `0` 이면 중복의심이 동작하지 않는 상태다.
+
+`0` 일 때 고치려면 클러스터를 다시 만들어야 한다(로케일은 생성 후 바꿀 수 없다).
+`docker-compose.yml` 에 `POSTGRES_INITDB_ARGS: "--lc-ctype=C.UTF-8"` 를 넣어 두었으므로,
+백업 → 볼륨 삭제 → 재기동 → 복원 순서로 처리한다.
+
+```bash
+./ops/backup.sh                      # 1) 먼저 백업 (반드시)
+docker compose down -v               # 2) 볼륨 삭제 — 백업을 확인한 뒤에만
+docker compose up -d --build         # 3) 새 로케일로 초기화 + 마이그레이션
+docker compose exec db psql -U "$POSTGRES_USER" -d npo_sales   -c "SELECT similarity('예시복지재단','예시복지재단');"   # 4) 1 인지 확인
+./ops/restore.sh backups/npo-<가장최근>.sql.gz            # 5) 복원
+```
+
+> 데이터 전체가 걸린 작업이다. 2번 이전에 백업 파일이 실제로 존재하고 크기가 정상인지
+> 눈으로 확인한다. 중복의심 기능을 당장 쓰지 않는다면 다음 점검 때로 미뤄도 된다.
+
+## 8. 점검 체크리스트
 
 운영 시작 전 한 번 확인한다.
 
@@ -254,3 +285,4 @@ db.commit()
 - [ ] 맥을 재부팅해도 사내 다른 PC에서 접속된다
 - [ ] `./ops/backup.sh` 가 성공하고, `./ops/restore.sh` 로 복원이 된다 (테스트 1회 필수)
 - [ ] `docker compose exec db psql ... -c "select count(*) from leads"` 가 기대 건수를 돌려준다
+- [ ] `similarity('예시복지재단','예시복지재단')` 가 `1` 이다 (7절)

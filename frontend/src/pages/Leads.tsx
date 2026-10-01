@@ -4,6 +4,7 @@ import { api, qs } from '../api/client'
 import { useAuth, useLabels } from '../auth'
 import { Badge, Button, Card, Empty, ErrorText, GradeBadge, Modal, formatDate, inputClass } from '../components/ui'
 import ManualLeadForm from '../components/ManualLeadForm'
+import { NSM_PRODUCTS, UPSELL_PRIORITIES } from '../types'
 import type { Lead, Page, User } from '../types'
 
 const GRADES = ['A', 'B', 'C', 'D']
@@ -52,6 +53,10 @@ export default function LeadsPage() {
     collected_to: get('collected_to'),
     include_customers: get('include_customers') === 'true',
     only_possible_dup: get('only_possible_dup') === 'true',
+    nsm_product: getAll('nsm_product'),
+    upsell_priority: getAll('upsell_priority'),
+    nsm_matched: get('nsm_matched'),
+    has_phone: get('has_phone'),
     q: get('q'),
     sort: get('sort') || 'score',
     order: get('order') || 'desc',
@@ -202,6 +207,49 @@ export default function LeadsPage() {
             </select>
           </div>
           <div>
+            <p className="mb-1 text-xs font-medium text-slate-500">보유 더존 제품</p>
+            <select className={inputClass} value="" onChange={(e) => e.target.value && toggleMulti('nsm_product', e.target.value)}>
+              <option value="">＋ 제품 추가</option>
+              {NSM_PRODUCTS.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+            </select>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {getAll('nsm_product').map((s) => (
+                <button key={s} onClick={() => toggleMulti('nsm_product', s)} className="rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900">
+                  {NSM_PRODUCTS.find((o) => o.code === s)?.label ?? s} ✕
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-500">상향 우선순위</p>
+            <select className={inputClass} value="" onChange={(e) => e.target.value && toggleMulti('upsell_priority', e.target.value)}>
+              <option value="">＋ 순위 추가</option>
+              {UPSELL_PRIORITIES.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+            </select>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {getAll('upsell_priority').map((s) => (
+                <button key={s} onClick={() => toggleMulti('upsell_priority', s)} className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">
+                  {s}순위 ✕
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-500">NSM·연락처</p>
+            <div className="flex gap-1">
+              <select className={inputClass} value={get('nsm_matched')} onChange={(e) => setParam('nsm_matched', e.target.value)}>
+                <option value="">NSM 전체</option>
+                <option value="true">기존 고객</option>
+                <option value="false">신규 개척</option>
+              </select>
+              <select className={inputClass} value={get('has_phone')} onChange={(e) => setParam('has_phone', e.target.value)}>
+                <option value="">연락처 전체</option>
+                <option value="true">연락처 있음</option>
+                <option value="false">연락처 없음</option>
+              </select>
+            </div>
+          </div>
+          <div>
             <p className="mb-1 text-xs font-medium text-slate-500">수집일</p>
             <div className="flex gap-1">
               <input type="date" className={inputClass} value={get('collected_from')} onChange={(e) => setParam('collected_from', e.target.value)} />
@@ -243,7 +291,9 @@ export default function LeadsPage() {
       )}
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
+        {/* 열이 많아 w-full 만으로는 칸이 찌그러진다. 최소 너비로 가로 스크롤을 쓰고,
+            칸 사이 여백이 없으면 '점수'와 '상태'가 붙어 '점수상태'로 읽힌다. */}
+        <table className="w-full min-w-[1240px] text-sm [&_td]:pr-4 [&_th]:pr-4">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
               {managerUp && (
@@ -255,17 +305,18 @@ export default function LeadsPage() {
                   />
                 </th>
               )}
-              <th className="cursor-pointer py-2" onClick={() => sortBy('grade')}>등급</th>
-              <th className="cursor-pointer py-2" onClick={() => sortBy('org_name')}>법인명</th>
-              <th className="py-2">유형</th>
-              <th className="py-2">지역</th>
-              <th className="cursor-pointer py-2" onClick={() => sortBy('established_at')}>설립·지정일</th>
-              <th className="py-2">단계신호</th>
-              <th className="cursor-pointer py-2 text-right" onClick={() => sortBy('score')}>점수</th>
-              <th className="cursor-pointer py-2" onClick={() => sortBy('status')}>상태</th>
-              <th className="py-2">담당자</th>
-              <th className="py-2">소스</th>
-              <th className="cursor-pointer py-2" onClick={() => sortBy('collected_at')}>수집일</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('grade')}>등급</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('org_name')}>법인명</th>
+              <th className="whitespace-nowrap py-2">유형</th>
+              <th className="whitespace-nowrap py-2">지역</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('established_at')}>설립·지정일</th>
+              <th className="whitespace-nowrap py-2">단계신호</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('upsell_priority')}>더존 제품</th>
+              <th className="cursor-pointer whitespace-nowrap py-2 text-right" onClick={() => sortBy('score')}>점수</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('status')}>상태</th>
+              <th className="whitespace-nowrap py-2">담당자</th>
+              <th className="whitespace-nowrap py-2">소스</th>
+              <th className="cursor-pointer whitespace-nowrap py-2" onClick={() => sortBy('collected_at')}>수집일</th>
             </tr>
           </thead>
           <tbody>
@@ -294,18 +345,36 @@ export default function LeadsPage() {
                   </span>
                 </td>
                 <td className="py-2 text-xs text-slate-600">{label('org_types', l.org_type)}</td>
-                <td className="py-2 text-xs text-slate-600">
+                <td className="whitespace-nowrap py-2 text-xs text-slate-600">
                   {label('regions', l.region_code)} {l.district ?? ''}
                 </td>
-                <td className="py-2 text-xs text-slate-600">
+                <td className="whitespace-nowrap py-2 text-xs text-slate-600">
                   {formatDate(l.designated_at ?? l.established_at)}
                 </td>
                 <td className="py-2"><Badge tone="blue">{label('stage_signals', l.stage_signal)}</Badge></td>
+                <td className="max-w-[230px] py-2 text-xs">
+                  {l.nsm_matched ? (
+                    <>
+                      <span className="font-medium text-slate-700">{l.nsm_top_product ?? '제품정보 없음'}</span>
+                      {l.upsell_priority != null && (
+                        <Badge tone={l.upsell_priority === 1 ? 'red' : l.upsell_priority === 2 ? 'amber' : 'blue'}>
+                          {l.upsell_priority}순위
+                        </Badge>
+                      )}
+                      {l.nsm_products && l.nsm_products !== l.nsm_top_product && (
+                        <p className="text-[11px] text-slate-500">{l.nsm_products}</p>
+                      )}
+                      {l.nsm_match_confidence === '확인필요' && <Badge tone="amber">확인필요</Badge>}
+                    </>
+                  ) : (
+                    <span className="text-slate-400">신규</span>
+                  )}
+                </td>
                 <td className="py-2 text-right font-medium">{l.score}</td>
-                <td className="py-2 text-xs">{label('lead_statuses', l.status)}</td>
+                <td className="whitespace-nowrap py-2 text-xs">{label('lead_statuses', l.status)}</td>
                 <td className="py-2 text-xs text-slate-600">{l.assignee_name ?? '-'}</td>
-                <td className="py-2 text-xs text-slate-500">{l.source_code?.replace('SRC_', '')}</td>
-                <td className="py-2 text-xs text-slate-500">{formatDate(l.collected_at)}</td>
+                <td className="whitespace-nowrap py-2 text-xs text-slate-500">{l.source_code?.replace('SRC_', '')}</td>
+                <td className="whitespace-nowrap py-2 text-xs text-slate-500">{formatDate(l.collected_at)}</td>
               </tr>
             ))}
           </tbody>

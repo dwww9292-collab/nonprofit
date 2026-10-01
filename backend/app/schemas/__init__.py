@@ -103,6 +103,13 @@ class LeadListItem(ORMModel):
     is_existing_customer: bool
     possible_dup_lead_id: int | None
     possible_revoked: bool
+    # NSM 매칭 결과 — 목록에서 '어떤 더존 제품을 쓰는지' 바로 보여야 한다
+    nsm_matched: bool = False
+    nsm_top_product: str | None = None
+    nsm_products: str | None = None
+    upsell_path: str | None = None
+    upsell_priority: int | None = None
+    nsm_match_confidence: str | None = None
 
 
 class LeadDetail(LeadListItem):
@@ -123,6 +130,14 @@ class LeadDetail(LeadListItem):
     assigned_at: datetime | None
     first_contacted_at: datetime | None
     sources: list[SourceOut] = []
+    nsm_company_name: str | None = None
+    nsm_customer_code: str | None = None
+    nsm_biz_reg_no: str | None = None
+    nsm_product_families: list[str] | None = None
+    nsm_product_tier: int = 0
+    nsm_sales_owner: str | None = None
+    nsm_match_basis: str | None = None
+    nsm_synced_at: datetime | None = None
 
 
 class LeadCreateManual(BaseModel):

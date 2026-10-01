@@ -60,6 +60,25 @@ docker compose exec backend python -m scripts.refine_nsm /data/매칭결과.xlsx
 제품 분류표와 상향경로 규칙은 `backend/scripts/refine_nsm.py` 상단의 `PRODUCTS`,
 `UPSELL_RULES` 한 곳에 있다. 영업 정책이 바뀌면 그 표만 고치면 산출물이 따라 바뀐다.
 
+### DB에 반영 (화면에서 필터하려면 이것)
+
+엑셀만으로는 영업사원이 쓰지 못한다. 매칭 결과를 `leads` 에 직접 넣어야 목록에서
+걸러진다.
+
+```bash
+docker compose exec backend python -m scripts.sync_nsm /data/nsm_customer.xlsx --dry-run
+docker compose exec backend python -m scripts.sync_nsm /data/nsm_customer.xlsx
+```
+
+- 기본값은 신뢰도 '중간' 이상만 반영한다(`--min-confidence`). '확인필요'(동명 다수·법인격
+  불일치)는 영업 목록을 더럽히므로 기본에서 빠진다.
+- 연락처가 빈 리드는 NSM 대표전화로 채운다(`--no-fill-phone` 로 끌 수 있다). 기존 값은
+  건드리지 않는다.
+- 매칭이 풀린 리드는 과거 값을 지운다 — 틀린 제품을 보여주면 안 된다.
+
+반영 후 리드 목록에서 **보유 더존 제품 / 상향 우선순위 / NSM·연락처** 로 거를 수 있고,
+CSV 내보내기에도 제품 열이 포함된다.
+
 ## 사내 서버 배포
 
 사내 맥을 서버로 쓰는 전체 절차(잠자기 해제, 자동 기동, 사내망 공개 범위, Tailscale,

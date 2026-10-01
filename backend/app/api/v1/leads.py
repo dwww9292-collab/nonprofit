@@ -79,6 +79,10 @@ def _apply_filters(
     collected_to: date | None,
     include_customers: bool,
     only_possible_dup: bool,
+    nsm_matched: bool | None,
+    nsm_product: list[str] | None,
+    upsell_priority: list[int] | None,
+    has_phone: bool | None,
     q: str | None,
 ) -> Select:
     stmt = stmt.where(Lead.deleted_at.is_(None))
@@ -104,6 +108,20 @@ def _apply_filters(
         stmt = stmt.where(Lead.collected_at <= datetime.combine(collected_to, datetime.max.time()))
     if only_possible_dup:
         stmt = stmt.where(Lead.possible_dup_lead_id.is_not(None))
+    if nsm_matched is not None:
+        stmt = stmt.where(Lead.nsm_matched.is_(nsm_matched))
+    if nsm_product:
+        # JSONB 배열 포함 검색. 여러 개를 주면 '하나라도 보유'(OR)로 본다.
+        # ix_leads_nsm_families(GIN)가 받는다.
+        stmt = stmt.where(
+            or_(*[Lead.nsm_product_families.contains([code]) for code in nsm_product])
+        )
+    if upsell_priority:
+        stmt = stmt.where(Lead.upsell_priority.in_(upsell_priority))
+    if has_phone is not None:
+        # 연락처 조사 대상(연락처 없는 리드)을 뽑는 데 쓴다
+        cond = Lead.phone.is_not(None) & (func.btrim(Lead.phone) != "")
+        stmt = stmt.where(cond if has_phone else ~cond)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -123,7 +141,12 @@ SORTABLE = {
     "grade": Lead.grade,
     "status": Lead.status,
     "established_at": Lead.established_at,
+    "nsm_product_tier": Lead.nsm_product_tier,
 }
+
+# upsell_priority 는 1이 가장 급하므로 오름차순이 '중요한 순'이다.
+# 나머지 정렬 키와 방향이 반대라서 따로 다룬다.
+ASCENDING_FIRST = {"upsell_priority"}
 
 
 @router.get("", response_model=Page[LeadListItem])
@@ -141,6 +164,10 @@ def list_leads(
     collected_to: date | None = None,
     include_customers: bool = False,
     only_possible_dup: bool = False,
+    nsm_matched: bool | None = None,
+    nsm_product: Annotated[list[str] | None, Query()] = None,
+    upsell_priority: Annotated[list[int] | None, Query()] = None,
+    has_phone: bool | None = None,
     q: str | None = None,
     sort: str = "score",
     order: str = "desc",
@@ -160,13 +187,23 @@ def list_leads(
         collected_to=collected_to,
         include_customers=include_customers,
         only_possible_dup=only_possible_dup,
+        nsm_matched=nsm_matched,
+        nsm_product=nsm_product,
+        upsell_priority=upsell_priority,
+        has_phone=has_phone,
         q=q,
     )
     count_stmt = stmt.with_only_columns(func.count(Lead.id)).order_by(None)
     total = db.scalar(count_stmt) or 0
 
-    col = SORTABLE.get(sort, Lead.score)
-    primary = col.desc() if order == "desc" else col.asc()
+    if sort == "upsell_priority":
+        # 1순위가 먼저. 미매칭(NULL)은 뒤로 보낸다.
+        primary = Lead.upsell_priority.asc().nulls_last()
+        if order == "desc":
+            primary = Lead.upsell_priority.desc().nulls_last()
+    else:
+        col = SORTABLE.get(sort, Lead.score)
+        primary = col.desc() if order == "desc" else col.asc()
     # 기본 정렬: 점수 내림차순 → 수집일 최신순 (docs/05-screens.md 3)
     stmt = stmt.order_by(primary, Lead.collected_at.desc()).offset((page - 1) * size).limit(size)
     items = [_to_list_item(x) for x in db.scalars(stmt).unique().all()]
@@ -188,6 +225,10 @@ def export_leads(
     collected_to: date | None = None,
     include_customers: bool = False,
     only_possible_dup: bool = False,
+    nsm_matched: bool | None = None,
+    nsm_product: Annotated[list[str] | None, Query()] = None,
+    upsell_priority: Annotated[list[int] | None, Query()] = None,
+    has_phone: bool | None = None,
     q: str | None = None,
 ) -> StreamingResponse:
     """현재 필터 결과 CSV 내보내기 (ADMIN·MANAGER, audit_logs에 EXPORT 기록)."""
@@ -204,6 +245,10 @@ def export_leads(
         collected_to=collected_to,
         include_customers=include_customers,
         only_possible_dup=only_possible_dup,
+        nsm_matched=nsm_matched,
+        nsm_product=nsm_product,
+        upsell_priority=upsell_priority,
+        has_phone=has_phone,
         q=q,
     ).order_by(Lead.score.desc(), Lead.collected_at.desc())
     leads = db.scalars(stmt).unique().all()
@@ -212,7 +257,8 @@ def export_leads(
     writer = csv.writer(buf)
     writer.writerow(
         ["등급", "점수", "법인명", "유형", "시도", "시군구", "주소", "대표자", "전화", "이메일",
-         "홈페이지", "설립일", "지정일", "주무관청", "상태", "담당자", "소스", "수집일", "기고객"]
+         "홈페이지", "설립일", "지정일", "주무관청", "상태", "담당자", "소스", "수집일", "기고객",
+         "NSM매칭", "보유제품", "주력제품", "상향경로", "상향우선순위", "NSM영업담당자", "매칭신뢰도"]
     )
     for x in leads:
         writer.writerow(
@@ -223,6 +269,9 @@ def export_leads(
                 x.established_at or "", x.designated_at or "", x.authority or "", x.status,
                 x.assignee.name if x.assignee else "", x.source.code if x.source else "",
                 x.collected_at.strftime("%Y-%m-%d"), "Y" if x.is_existing_customer else "N",
+                "Y" if x.nsm_matched else "N", x.nsm_products or "", x.nsm_top_product or "",
+                x.upsell_path or "", x.upsell_priority or "", x.nsm_sales_owner or "",
+                x.nsm_match_confidence or "",
             ]
         )
     write_audit(db, user, AuditAction.EXPORT, target_type="LEAD", detail={"count": len(leads)})
