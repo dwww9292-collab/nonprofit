@@ -35,9 +35,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${BASE}/api/v1${path}`, { ...init, headers })
   if (res.status === 401) {
+    // 로그인 시도 자체가 거부된 경우는 세션 만료가 아니다.
+    // 서버가 보낸 사유("이메일 또는 비밀번호가 올바르지 않습니다")를 그대로 보여준다.
+    if (path.startsWith('/auth/login')) {
+      throw new ApiError(401, await parseError(res))
+    }
     tokenStore.clear()
     if (!location.pathname.startsWith('/login')) location.href = '/login'
-    throw new ApiError(401, '로그인이 필요합니다.')
+    throw new ApiError(401, '세션이 만료됐습니다. 다시 로그인해 주세요.')
   }
   if (!res.ok) throw new ApiError(res.status, await parseError(res))
   if (res.status === 204) return undefined as T

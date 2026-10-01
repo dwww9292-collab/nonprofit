@@ -92,6 +92,18 @@ def create_demo_users(db: Session, password: str | None = None) -> tuple[list[Us
     return users, password
 
 
+def _free_corp_reg_no(db: Session, rng: random.Random) -> str | None:
+    """아직 쓰이지 않은 13자리 법인등록번호를 고른다.
+
+    번호를 순번으로 만들면 --demo를 두 번 돌릴 때 유니크 제약에 걸린다.
+    """
+    for _ in range(50):
+        candidate = f"1101110{rng.randint(0, 999999):06d}"
+        if db.scalars(select(Lead).where(Lead.corp_reg_no == candidate)).first() is None:
+            return candidate
+    return None
+
+
 def create_demo_leads(db: Session, count: int = 30, seed: int = 20260822) -> list[Lead]:
     rng = random.Random(seed)
     cfg = ScoringConfig.load(db)
@@ -137,7 +149,7 @@ def create_demo_leads(db: Session, count: int = 30, seed: int = 20260822) -> lis
                     else rng.choice(ORG_TYPES)
                 )
             ),
-            corp_reg_no=f"1101110{i:06d}" if rng.random() < 0.7 else None,
+            corp_reg_no=_free_corp_reg_no(db, rng) if rng.random() < 0.7 else None,
             region_code=extract_region_code(address),
             district=extract_district(address),
             address=address,
