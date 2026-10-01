@@ -200,9 +200,11 @@ docker compose down
 # ⚠️ 절대 쓰지 말 것 — pgdata 볼륨까지 삭제되어 전체 데이터가 사라진다
 # docker compose down -v
 
-# 코드 업데이트 반영
+# 코드 업데이트 반영 — 서비스 이름을 주지 않아야 프론트까지 다시 빌드된다.
+# backend 만 지정하면 화면은 예전 번들 그대로라 새 기능이 보이지 않는다.
 git pull origin main
 docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+# 화면이 그대로면 브라우저 캐시 — Ctrl+Shift+R
 
 # 로그
 docker compose logs -f backend

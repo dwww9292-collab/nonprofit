@@ -70,6 +70,15 @@ docker compose exec backend python -m scripts.sync_nsm /data/nsm_customer.xlsx -
 docker compose exec backend python -m scripts.sync_nsm /data/nsm_customer.xlsx
 ```
 
+> 프론트엔드는 빌드 시점에 번들이 만들어진다. 코드를 받은 뒤 `--build` 로 **backend 만**
+> 다시 올리면 화면은 예전 번들 그대로라서 새 열·필터가 보이지 않는다. 둘 다 올릴 것:
+>
+> ```bash
+> docker compose up -d --build        # 서비스 이름을 주지 않으면 전부 다시 빌드한다
+> ```
+>
+> 그래도 안 보이면 브라우저 캐시다 — Ctrl+Shift+R(맥은 Cmd+Shift+R).
+
 - 기본값은 신뢰도 '중간' 이상만 반영한다(`--min-confidence`). '확인필요'(동명 다수·법인격
   불일치)는 영업 목록을 더럽히므로 기본에서 빠진다.
 - 연락처가 빈 리드는 NSM 대표전화로 채운다(`--no-fill-phone` 로 끌 수 있다). 기존 값은
