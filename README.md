@@ -95,3 +95,20 @@ frontend/src/pages/    로그인 · 대시보드 · 리드목록 · 리드상세
   역시 `.gitignore` 대상이다. 커밋하지 말 것.
 - 대표자 성명 열람은 `audit_logs`에 기록된다 (`VIEW_LEAD_DETAIL`).
 - DB 포트는 compose에서 호스트로 노출하지 않는다. 앱 포트도 `127.0.0.1`에만 바인딩한다.
+
+## 파일 적재 (CLI)
+
+업로드 화면 대신 터미널에서 적재할 수 있다. 같은 `ingest_file()`을 호출하므로 결과는 동일하고,
+대용량 파일(행안부 전국 14,000행)은 브라우저보다 안정적이다.
+
+```bash
+# 폴더 안의 파일을 올바른 순서로 한 번에 (기고객 → 행안부 → 기재부 분기 오름차순)
+docker compose exec backend python -m scripts.ingest auto /data
+
+# 개별 지정
+docker compose exec backend python -m scripts.ingest npo  /data/mois_npo_20260331.xls
+docker compose exec backend python -m scripts.ingest moef /data/moef_designation_2026Q2.xlsx --period 2026Q2
+```
+
+기재부 파일의 기간은 파일명에서 자동 추출되며(`..._2026Q2.xlsx`), `--period`로 덮어쓸 수 있다.
+**순서가 중요하다** — 주소를 가진 행안부 파일이 먼저 들어가야 기재부 리드가 병합되며 지역이 채워진다.
