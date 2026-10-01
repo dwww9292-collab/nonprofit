@@ -1,0 +1,44 @@
+# 인터넷에 공개할 때 쓰는 오버라이드 (docs/09-deploy-aws.md)
+#
+#   docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
+#
+# 사내망용(docker-compose.server.yml)과 다른 점은 Caddy 를 앞에 세워 HTTPS 를
+# 처리한다는 것뿐이다. 인터넷에 열면 로그인 비밀번호가 평문으로 흐르면 안 된다.
+#
+# Caddy 가 443 을 받아 frontend(nginx) 로 넘기고, nginx 가 SPA 를 주면서 /api/ 를
+# backend 로 프록시한다. 그래서 frontend·backend 포트는 호스트에 열지 않는다.
+
+services:
+  db:
+    restart: always
+
+  backend:
+    restart: always
+
+  frontend:
+    restart: always
+    # base 의 ports 는 합쳐지므로 .env 에서 BIND_ADDR=127.0.0.1 로 둔다.
+    # Caddy 가 compose 내부 네트워크로 접근하므로 호스트 포트는 필요 없다.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      # 도메인이 있으면 그 도메인을, 없으면 :80 을 넣는다(HTTP, 임시용).
+      SITE_ADDRESS: ${SITE_ADDRESS:?.env에 SITE_ADDRESS를 설정하세요 (도메인 또는 :80)}
+      # Let's Encrypt 만료 알림을 받을 주소
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # 발급받은 인증서 — 지우면 재발급 한도에 걸린다
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

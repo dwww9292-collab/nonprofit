@@ -1,0 +1,39 @@
+# Caddy 설정. docker-compose.aws.yml 이 환경변수로 값을 넣는다.
+#
+# SITE_ADDRESS 에 도메인(npo.example.co.kr)을 주면 Let's Encrypt 인증서를
+# 자동 발급·갱신한다. 도메인이 없으면 ":80" 을 줘서 HTTP 로만 띄울 수 있지만,
+# 로그인 비밀번호가 평문으로 흐르므로 임시로만 쓸 것.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# 적재 파일이 25MB를 넘는다(NSM 마스터). 기본 제한에 걸리지 않게 올린다.
+	request_body {
+		max_size 64MB
+	}
+
+	reverse_proxy frontend:80 {
+		# 대용량 업로드와 적재 작업(수 분)이 중간에 끊기지 않게
+		transport http {
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+
+	header {
+		# 인터넷에 열리므로 최소한의 보호 헤더
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

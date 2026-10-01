@@ -88,6 +88,17 @@ docker compose exec backend python -m scripts.sync_nsm /data/nsm_customer.xlsx
 반영 후 리드 목록에서 **보유 더존 제품 / 상향 우선순위 / NSM·연락처** 로 거를 수 있고,
 CSV 내보내기에도 제품 열이 포함된다.
 
+## 배포
+
+| 상황 | 방법 | 문서 |
+|---|---|---|
+| 사내망에서만 본다 | 사내 서버(맥·PC) + compose | `docs/08-deploy.md` |
+| 사내망 + 가끔 외부 | 사내 서버 + Tailscale | `docs/08-deploy.md` 4절 |
+| 외부에서 상시 접속 | AWS Lightsail + Caddy(HTTPS) | `docs/09-deploy-aws.md` |
+
+Vercel·GitHub Pages 에는 올릴 수 없다 — PostgreSQL 과 상시 구동 API 가 필요하고,
+적재 작업이 서버리스 함수 실행시간 제한을 넘는다(실측 46초).
+
 ## 사내 서버 배포
 
 사내 맥을 서버로 쓰는 전체 절차(잠자기 해제, 자동 기동, 사내망 공개 범위, Tailscale,
