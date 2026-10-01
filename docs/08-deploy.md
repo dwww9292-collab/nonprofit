@@ -164,6 +164,47 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:3000
 # 백업 완료: ./backups/npo-20261001-031000.sql.gz (4,210 KB)
 ```
 
+### Windows(PowerShell)에서 백업할 때
+
+`ops/backup.sh` 는 bash 스크립트라 PowerShell 에서 바로 돌지 않는다. 그렇다고
+`pg_dump ... > 파일` 로 받으면 안 된다 — Windows PowerShell 5.1 의 `>` 는 UTF-16 으로
+쓰기 때문에 덤프가 깨진다. 컨테이너 안에서 파일로 만든 뒤 꺼내오는 쪽이 안전하다.
+
+```powershell
+mkdir C:\nonprofit\backups -Force
+docker compose exec db sh -c "pg_dump -U npo -d npo_sales --clean --if-exists | gzip > /tmp/npo.sql.gz"
+docker compose cp db:/tmp/npo.sql.gz C:\nonprofit\backups\npo.sql.gz
+docker compose exec db rm -f /tmp/npo.sql.gz
+```
+
+복원도 같은 방식으로 넣고 푼다.
+
+```powershell
+docker compose cp C:\nonprofit\backups\npo.sql.gz db:/tmp/npo.sql.gz
+docker compose exec db sh -c "gunzip -c /tmp/npo.sql.gz | psql -U npo -d npo_sales -v ON_ERROR_STOP=1 --quiet"
+docker compose exec db rm -f /tmp/npo.sql.gz
+```
+
+## 5-1. 다른 PC 에서 이 서버로 데이터 옮기기
+
+개발용 PC(Windows)에서 쓰던 데이터를 사내 맥 서버로 넘길 때의 순서다. 영업 담당 배정과
+활동 기록까지 함께 넘어가므로, 원본 엑셀을 다시 적재하는 것보다 이쪽이 맞다.
+
+1. **Windows 쪽**: 위 PowerShell 절차로 `npo.sql.gz` 를 만든다.
+2. 그 파일을 맥으로 옮긴다. **개인정보가 들어 있으므로** 사내 통제 범위 안에서만
+   — 사내 드라이브나 USB. 개인 메일·개인 클라우드는 안 된다.
+3. **맥 쪽**: 저장소를 받아 기동한 뒤 복원한다.
+
+   ```bash
+   mkdir -p ~/nonprofit/backups
+   cp /Volumes/USB/npo.sql.gz ~/nonprofit/backups/
+   cd ~/nonprofit && ./ops/restore.sh backups/npo.sql.gz
+   ```
+
+4. 분기 갱신을 맥에서 하려면 원본 엑셀(행안부·기재부·NSM 마스터)도 같이 옮겨
+   `~/nonprofit/data/` 에 둔다. `data/` 는 `.gitignore` 처리돼 있다.
+5. 옮긴 뒤 **USB 의 백업 파일은 지운다.**
+
 ### 자동 백업 (매일 03:10)
 
 ```bash
