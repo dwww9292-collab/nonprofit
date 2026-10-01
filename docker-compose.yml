@@ -46,7 +46,10 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:3000:80"
+      # 기본은 로컬 전용. 사내망에 공개하려면 .env 에 BIND_ADDR=0.0.0.0 을 둔다
+      # (docs/08-deploy.md). compose 는 override 파일의 ports 를 합쳐버리므로
+      # 노출 범위는 override 가 아니라 이 변수로만 제어한다.
+      - "${BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-3000}:80"
 
 volumes:
   pgdata:

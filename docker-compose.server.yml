@@ -1,0 +1,22 @@
+# 사내 서버 상시 운영용 오버라이드 (docs/08-deploy.md)
+#
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+#
+# 하는 일은 재부팅·크래시 후 자동 복구를 켜는 것뿐이다.
+#
+# 포트 노출 범위는 여기서 바꾸지 않는다. compose 는 override 파일의 ports 를 교체가
+# 아니라 '합치기'로 처리해서, 여기에 0.0.0.0:3000 을 적으면 base 의 127.0.0.1:3000 과
+# 함께 두 번 바인딩되어 기동이 실패한다. 공개 범위는 .env 의 BIND_ADDR 로 제어한다.
+#
+# 백엔드·DB 포트는 계속 닫아 둔다 — nginx 가 compose 내부 네트워크로 /api/ 를
+# 프록시하므로 외부에 열 이유가 없다.
+
+services:
+  db:
+    restart: always
+
+  backend:
+    restart: always
+
+  frontend:
+    restart: always

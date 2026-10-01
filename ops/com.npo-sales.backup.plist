@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS 자동 백업 (매일 03:10). docs/08-deploy.md 참고.
+
+  설치:
+    sed -i '' 's#__REPO__#/Users/본인계정/nonprofit#g' ops/com.npo-sales.backup.plist
+    cp ops/com.npo-sales.backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.npo-sales.backup.plist
+
+  즉시 테스트:
+    launchctl start com.npo-sales.backup
+    tail -20 __REPO__/backups/backup.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.npo-sales.backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/ops/backup.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!-- docker CLI 경로 확보: launchd 는 로그인 셸의 PATH 를 물려받지 않는다 -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>KEEP_DAYS</key>
+    <string>30</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>10</integer>
+  </dict>
+
+  <!-- 03:10 에 맥이 꺼져 있었으면 다음 기동 직후 한 번 실행 -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__REPO__/backups/backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/backups/backup.log</string>
+</dict>
+</plist>

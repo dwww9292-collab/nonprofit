@@ -27,6 +27,29 @@ docker compose up --build
 docker compose exec backend python -m scripts.seed --demo
 ```
 
+## 실데이터 적재
+
+공개데이터 원본 파일(행안부 비영리민간단체 등록현황, 기재부 지정기부금단체 지정누계)을
+`data/` 에 넣고 한 번에 적재한다. 파일명으로 출처와 분기를 자동 판별한다.
+
+```bash
+mkdir -p data          # data/ 는 .gitignore 처리 — 원본에 개인정보가 있어 커밋되지 않는다
+docker compose cp data backend:/data
+docker compose exec backend python -m scripts.ingest auto /data
+```
+
+출처별 다운로드 경로와 파일 구조는 `docs/04-data-sources.md` 에 있다.
+
+## 사내 서버 배포
+
+사내 맥을 서버로 쓰는 전체 절차(잠자기 해제, 자동 기동, 사내망 공개 범위, Tailscale,
+자동 백업·복원, 분기 갱신, 점수 재계산)는 **`docs/08-deploy.md`** 에 정리돼 있다.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+./ops/backup.sh        # 백업
+```
+
 ## 로컬 개발
 
 ### 백엔드

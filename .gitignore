@@ -26,6 +26,7 @@ samples/*.xls
 samples/*.csv
 !samples/existing_customers_template.csv
 data/
+backups/
 /*.xlsx
 /*.xls
 /*.csv
